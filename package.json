@@ -9,8 +9,9 @@
   "scripts": {
     "start": "node src/server.js",
     "build": "vite build",
-    "local": "vite build && AUTENTICACAO=local BANCO=./dados/notebook.db BASE_URL=http://localhost:19400 PORTA=19400 node src/server.js",
-    "test": "node --test test/*.test.js"
+    "local": "vite build && AUTENTICACAO=local BANCO=./dados/notebook.db BASE_URL=${BASE_URL:-http://localhost:19400} PORTA=19400 node src/server.js",
+    "test": "node --test test/*.test.js",
+    "local:tailnet": "vite build && AUTENTICACAO=local BANCO=./dados/notebook.db ESCUTA=$(tailscale ip -4) BASE_URL=http://homeserver:19400 PORTA=19400 node src/server.js"
   },
   "dependencies": {
     "openid-client": "6.8.8"
