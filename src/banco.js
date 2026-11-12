@@ -69,6 +69,12 @@ export function abrirBanco(caminho) {
     CREATE INDEX IF NOT EXISTS sessoes_ordem ON sessoes (disciplina_id, ordem);
     CREATE INDEX IF NOT EXISTS materiais_ordem ON materiais (sessao_id, ordem);
   `);
+  // Conclusão própria de caderno, disciplina e sessão (#7): concluir sem marcar
+  // todos os filhos. Bancos de antes ganham a coluna aqui.
+  for (const tabela of ["cadernos", "disciplinas", "sessoes"]) {
+    const colunas = db.prepare(`PRAGMA table_info(${tabela})`).all().map((c) => c.name);
+    if (!colunas.includes("concluido_em")) db.exec(`ALTER TABLE ${tabela} ADD COLUMN concluido_em TEXT`);
+  }
   return db;
 }
 
@@ -91,8 +97,8 @@ export function arvore(db, usuario, cadernoId = null) {
   const filtro = cadernoId == null ? "" : "AND c.id = ?";
   const linhas = db
     .prepare(
-      `SELECT c.id cid, c.nome cnome, d.id did, d.nome dnome, s.id sid, s.nome snome,
-              m.id mid, m.nome mnome, m.concluido_em feito
+      `SELECT c.id cid, c.nome cnome, c.concluido_em cfeito, d.id did, d.nome dnome, d.concluido_em dfeito,
+              s.id sid, s.nome snome, s.concluido_em sfeito, m.id mid, m.nome mnome, m.concluido_em feito
          FROM cadernos c
          LEFT JOIN disciplinas d ON d.caderno_id = c.id
          LEFT JOIN sessoes s ON s.disciplina_id = d.id
@@ -106,39 +112,61 @@ export function arvore(db, usuario, cadernoId = null) {
   const disciplinas = new Map();
   const sessoes = new Map();
   for (const l of linhas) {
-    if (!cadernos.has(l.cid)) cadernos.set(l.cid, { id: l.cid, nome: l.cnome, disciplinas: [] });
+    if (!cadernos.has(l.cid)) cadernos.set(l.cid, { id: l.cid, nome: l.cnome, concluidoEm: l.cfeito, disciplinas: [] });
     if (l.did != null && !disciplinas.has(l.did)) {
-      const d = { id: l.did, nome: l.dnome, sessoes: [] };
+      const d = { id: l.did, nome: l.dnome, concluidoEm: l.dfeito, sessoes: [] };
       disciplinas.set(l.did, d);
       cadernos.get(l.cid).disciplinas.push(d);
     }
     if (l.sid != null && !sessoes.has(l.sid)) {
-      const s = { id: l.sid, nome: l.snome, materiais: [], disciplina: disciplinas.get(l.did).nome, cadernoId: l.cid };
+      const s = { id: l.sid, nome: l.snome, concluidoEm: l.sfeito, materiais: [], disciplina: disciplinas.get(l.did).nome, cadernoId: l.cid };
       sessoes.set(l.sid, s);
       disciplinas.get(l.did).sessoes.push(s);
     }
     if (l.mid != null) sessoes.get(l.sid).materiais.push({ id: l.mid, nome: l.mnome, feito: l.feito != null, feitoEm: l.feito });
   }
 
+  // Cada nível conclui de dois jeitos: a mão (concluido_em do próprio nível) ou
+  // sozinho, quando todos os filhos estão concluídos. Um nível concluído conta
+  // como 100% no de cima, mesmo com material em aberto dentro dele: o Ebook que
+  // só entra se ficou lacuna não segura a sessão.
+  //   feitosReais  materiais marcados de fato, pro contador
+  //   feitos       o que conta pra barra e pro nível de cima
   for (const s of sessoes.values()) {
     s.total = s.materiais.length;
-    s.feitos = s.materiais.filter((m) => m.feito).length;
-    s.concluido = s.total > 0 && s.feitos === s.total;
+    s.feitosReais = s.materiais.filter((m) => m.feito).length;
+    s.manual = s.concluidoEm != null;
+    s.concluido = s.manual || (s.total > 0 && s.feitosReais === s.total);
+    s.feitos = s.concluido ? s.total : s.feitosReais;
   }
+  const fechar = (no, filhos) => {
+    contar(no, filhos);
+    no.feitosReais = no[filhos].reduce((n, f) => n + f.feitosReais, 0);
+    no.manual = no.concluidoEm != null;
+    no.concluido = no.manual || (no[filhos].length > 0 && no[filhos].every((f) => f.concluido));
+    if (no.concluido) no.feitos = no.total;
+  };
   for (const d of disciplinas.values()) {
-    contar(d, "sessoes");
-    d.sessoesConcluidas = d.sessoes.filter((s) => s.concluido).length;
+    fechar(d, "sessoes");
+    d.sessoesConcluidas = d.concluido ? d.sessoes.length : d.sessoes.filter((s) => s.concluido).length;
   }
   for (const c of cadernos.values()) {
-    contar(c, "disciplinas");
+    fechar(c, "disciplinas");
     c.sessoesTotal = c.disciplinas.reduce((n, d) => n + d.sessoes.length, 0);
-    c.sessoesConcluidas = c.disciplinas.reduce((n, d) => n + d.sessoesConcluidas, 0);
-    // O primeiro material em aberto, na ordem do caderno: o "continuar de onde parei".
+    c.sessoesConcluidas = c.concluido ? c.sessoesTotal : c.disciplinas.reduce((n, d) => n + d.sessoesConcluidas, 0);
+    // O primeiro material em aberto, na ordem do caderno, pulando o que já foi
+    // concluído em qualquer nível: o "continuar de onde parei".
     c.proximo = null;
+    if (c.concluido) continue;
     for (const d of c.disciplinas) {
+      if (d.concluido || c.proximo) continue;
       for (const s of d.sessoes) {
+        if (s.concluido) continue;
         const m = s.materiais.find((x) => !x.feito);
-        if (m && !c.proximo) c.proximo = { sessao: s, material: m };
+        if (m) {
+          c.proximo = { sessao: s, material: m };
+          break;
+        }
       }
     }
   }
@@ -181,6 +209,22 @@ export function alternarMaterial(db, usuario, id) {
     )
     .get(id, usuario);
   return linha?.sessao_id ?? null;
+}
+
+// Conclui ou reabre um caderno, disciplina ou sessão, sem mexer nos filhos.
+// Devolve o caderno e o tipo, pra o servidor saber pra onde voltar, ou null se
+// o item não existe ou é de outra pessoa.
+export function alternarConclusao(db, usuario, tipo, id) {
+  if (!["c", "d", "s"].includes(tipo)) return null;
+  const cadernoId = cadernoDoItem(db, usuario, tipo, id);
+  if (cadernoId == null) return null;
+  consulta(
+    db,
+    `UPDATE ${NIVEIS[tipo].tabela}
+        SET concluido_em = CASE WHEN concluido_em IS NULL THEN strftime('%Y-%m-%dT%H:%M:%SZ', 'now') ELSE NULL END
+      WHERE id = ?`,
+  ).run(id);
+  return { cadernoId, tipo, id };
 }
 
 export function marcarSessao(db, usuario, id, concluir) {
@@ -232,13 +276,20 @@ export function importar(db, usuario, cadernos) {
 
   db.exec("BEGIN");
   try {
+    // Como nos materiais, "concluído: sim" conclui, e a ausência não reabre.
+    const concluir = (tabela, id, sim) => {
+      if (sim) consulta(db, `UPDATE ${tabela} SET concluido_em = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ? AND concluido_em IS NULL`).run(id);
+    };
     for (const c of cadernos) {
       const cad = acharOuCriar("cadernos", "usuario", usuario, c.nome);
+      concluir("cadernos", cad.id, c.concluido);
       resultado.cadernos.push(cad.id);
       for (const d of c.disciplinas) {
         const dis = acharOuCriar("disciplinas", "caderno_id", cad.id, d.nome);
+        concluir("disciplinas", dis.id, d.concluido);
         for (const s of d.sessoes) {
           const ses = acharOuCriar("sessoes", "disciplina_id", dis.id, s.nome);
+          concluir("sessoes", ses.id, s.concluido);
           for (const m of s.materiais) {
             const mat = acharOuCriar("materiais", "sessao_id", ses.id, m.nome);
             if (mat.novo) resultado.criados++;

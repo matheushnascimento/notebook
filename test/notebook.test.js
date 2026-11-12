@@ -253,3 +253,115 @@ test("segurança: tetos por arquivo e por conta, rápidos e sem gravar pela meta
   assert.ok(criados.some((r) => r.id));
   assert.match(criados.at(-1).erro, /limite/);
 });
+
+// --- Concluir sem marcar todos os itens (#7) ---------------------------------
+
+test("conclusão: sessão concluída a mão conta como 100% acima, e reabrir desfaz", () => {
+  const db = banco.abrirBanco(":memory:");
+  const id = banco.importar(db, "ana", lerMarkdown("# C\n## D\n### S1\n- a\n- b\n- c\n- d\n### S2\n- e\n- f\n- g\n- h\n").cadernos).cadernos[0];
+  let c = banco.caderno(db, "ana", id);
+  const [s1, s2] = c.disciplinas[0].sessoes;
+  banco.alternarMaterial(db, "ana", s1.materiais[0].id);
+
+  assert.deepEqual(banco.alternarConclusao(db, "ana", "s", s1.id), { cadernoId: id, tipo: "s", id: s1.id });
+  c = banco.caderno(db, "ana", id);
+  const [x1] = c.disciplinas[0].sessoes;
+  assert.equal(x1.concluido, true);
+  assert.equal(x1.manual, true);
+  assert.equal(x1.feitosReais, 1, "os materiais não mudam");
+  assert.equal(x1.feitos, 4, "conta como 4 de 4");
+  assert.equal(c.disciplinas[0].feitos, 4, "a disciplina vê 4 de 8");
+  assert.equal(c.disciplinas[0].sessoesConcluidas, 1);
+  assert.equal(c.proximo.sessao.id, s2.id, "o continuar pula a sessão concluída");
+  assert.equal(c.concluido, false);
+
+  banco.alternarConclusao(db, "ana", "s", s1.id);
+  c = banco.caderno(db, "ana", id);
+  assert.equal(c.disciplinas[0].sessoes[0].concluido, false);
+  assert.equal(c.disciplinas[0].feitos, 1);
+  assert.equal(c.proximo.sessao.id, s1.id);
+});
+
+test("conclusão: disciplina e caderno concluem acima, e a automática continua valendo", () => {
+  const db = banco.abrirBanco(":memory:");
+  const id = banco.importar(db, "ana", lerMarkdown("# C\n## D1\n### S\n- a\n- b\n## D2\n### T\n- c\n### Vazia\n").cadernos).cadernos[0];
+  let c = banco.caderno(db, "ana", id);
+  const [d1, d2] = c.disciplinas;
+
+  banco.alternarConclusao(db, "ana", "d", d1.id);
+  c = banco.caderno(db, "ana", id);
+  assert.equal(c.disciplinas[0].concluido, true);
+  assert.equal(c.disciplinas[0].sessoesConcluidas, 1);
+  assert.equal(c.feitos, 2, "D1 conta inteira");
+  assert.equal(c.proximo.sessao.nome, "T");
+
+  // Automática: com todos os materiais de T marcados e a sessão vazia concluída a mão, D2 conclui sozinha.
+  banco.alternarMaterial(db, "ana", d2.sessoes[0].materiais[0].id);
+  banco.alternarConclusao(db, "ana", "s", d2.sessoes[1].id);
+  c = banco.caderno(db, "ana", id);
+  assert.equal(c.disciplinas[1].concluido, true);
+  assert.equal(c.disciplinas[1].manual, false);
+  assert.equal(c.concluido, true, "todas as disciplinas concluídas");
+  assert.equal(c.proximo, null);
+
+  // Caderno concluído a mão, mesmo com algo reaberto dentro.
+  banco.alternarConclusao(db, "ana", "d", d1.id);
+  assert.equal(banco.caderno(db, "ana", id).concluido, false);
+  banco.alternarConclusao(db, "ana", "c", id);
+  c = banco.caderno(db, "ana", id);
+  assert.equal(c.concluido, true);
+  assert.equal(c.sessoesConcluidas, c.sessoesTotal);
+  assert.equal(c.feitos, c.total);
+});
+
+test("conclusão: o .md leva e traz, e ninguém conclui o que não é seu", () => {
+  const db = banco.abrirBanco(":memory:");
+  const md = "# C\nconcluído: sim\n## D\nconcluida: s\n### S\nConcluído: sim\n- a\n### T\nconcluído: não\n- b\n";
+  const lido = lerMarkdown(md);
+  assert.deepEqual(lido.avisos, []);
+  assert.equal(lido.cadernos[0].concluido, true);
+  assert.equal(lido.cadernos[0].disciplinas[0].sessoes[1].concluido, false);
+  assert.match(lerMarkdown("# C\nconcluído: talvez\n").avisos[0], /concluído: sim/);
+
+  const id = banco.importar(db, "ana", lido.cadernos).cadernos[0];
+  const c = banco.caderno(db, "ana", id);
+  assert.ok(c.manual && c.disciplinas[0].manual && c.disciplinas[0].sessoes[0].manual);
+  assert.equal(c.disciplinas[0].sessoes[1].manual, false);
+  const volta = escreverMarkdown(c);
+  assert.equal((volta.match(/concluído: sim/g) ?? []).length, 3);
+  const copia = banco.caderno(db, "bia", banco.importar(db, "bia", lerMarkdown(volta).cadernos).cadernos[0]);
+  assert.ok(copia.manual && copia.disciplinas[0].sessoes[0].manual);
+  assert.equal(copia.disciplinas[0].sessoes[1].manual, false);
+
+  // Reimportar sem a linha não reabre.
+  banco.importar(db, "ana", lerMarkdown("# C\n## D\n### S\n- a\n").cadernos);
+  assert.ok(banco.caderno(db, "ana", id).disciplinas[0].sessoes[0].manual);
+
+  // Outra pessoa, material e tipos inválidos: nada.
+  const s = c.disciplinas[0].sessoes[0];
+  assert.equal(banco.alternarConclusao(db, "bia", "s", s.id), null);
+  assert.equal(banco.alternarConclusao(db, "ana", "m", s.materiais[0].id), null);
+  assert.equal(banco.alternarConclusao(db, "ana", "__proto__", 1), null);
+  assert.ok(banco.caderno(db, "ana", id).disciplinas[0].sessoes[0].manual);
+});
+
+test("conclusão: banco de antes ganha a coluna sem perder nada", async () => {
+  const { DatabaseSync } = await import("node:sqlite");
+  const { mkdtempSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const { tmpdir } = await import("node:os");
+  const caminho = join(mkdtempSync(join(tmpdir(), "notebook-")), "velho.db");
+  const velho = new DatabaseSync(caminho);
+  velho.exec(`CREATE TABLE cadernos (id INTEGER PRIMARY KEY, usuario TEXT NOT NULL, nome TEXT NOT NULL COLLATE NOCASE, ordem INTEGER NOT NULL, UNIQUE (usuario, nome));
+    CREATE TABLE disciplinas (id INTEGER PRIMARY KEY, caderno_id INTEGER NOT NULL REFERENCES cadernos(id) ON DELETE CASCADE, nome TEXT NOT NULL COLLATE NOCASE, ordem INTEGER NOT NULL, UNIQUE (caderno_id, nome));
+    CREATE TABLE sessoes (id INTEGER PRIMARY KEY, disciplina_id INTEGER NOT NULL REFERENCES disciplinas(id) ON DELETE CASCADE, nome TEXT NOT NULL COLLATE NOCASE, ordem INTEGER NOT NULL, UNIQUE (disciplina_id, nome));
+    CREATE TABLE materiais (id INTEGER PRIMARY KEY, sessao_id INTEGER NOT NULL REFERENCES sessoes(id) ON DELETE CASCADE, nome TEXT NOT NULL COLLATE NOCASE, ordem INTEGER NOT NULL, concluido_em TEXT, UNIQUE (sessao_id, nome));
+    INSERT INTO cadernos VALUES (1, 'ana', 'Velho', 0); INSERT INTO disciplinas VALUES (1, 1, 'D', 0);
+    INSERT INTO sessoes VALUES (1, 1, 'S', 0); INSERT INTO materiais VALUES (1, 1, 'M', 0, '2026-11-01T00:00:00Z');`);
+  velho.close();
+  const db = banco.abrirBanco(caminho);
+  const c = banco.caderno(db, "ana", 1);
+  assert.equal(c.disciplinas[0].sessoes[0].materiais[0].feito, true);
+  assert.ok(banco.alternarConclusao(db, "ana", "c", 1));
+  assert.ok(banco.abrirBanco(caminho), "abrir de novo não tenta criar a coluna outra vez");
+});

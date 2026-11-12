@@ -13,6 +13,15 @@ Cada nível mostra o contador de progresso (feitos/total e %) e a barra. Os
 materiais são marcados como concluídos ou não concluídos, e o caderno mostra o
 próximo material em aberto ("Continuar").
 
+**Sessão, disciplina e caderno também se concluem sozinhos, sem marcar todos os
+materiais** ("Concluir sessão", "Concluir disciplina", "Concluir caderno"). Serve
+para o Ebook que só entra se ficou lacuna, ou para a aula que não aconteceu.
+- O que foi concluído a mão conta como 100% no nível de cima, e o "Continuar" pula.
+- O contador continua mostrando os materiais marcados de fato, por exemplo
+  "7/9 · concluída".
+- Quando todos os filhos estão concluídos, o nível se conclui sozinho.
+- "Reabrir" desfaz a conclusão feita a mão.
+
 ## Editar pela interface
 
 "Novo caderno", no início, e "Editar", no caderno, abrem a árvore inteira em
@@ -39,6 +48,8 @@ modelo: cst              ← opcional
 ### PGUN1 - Unidade 1    ← sessão
 - [ ] Vídeo              ← material
 - [x] Ebook 1/2          ← material concluído
+### PGUN2 - Unidade 2
+concluído: sim           ← sessão concluída a mão
 ```
 
 - Uma sessão **sem itens de lista** recebe os materiais do `modelo:` mais próximo
@@ -47,6 +58,8 @@ modelo: cst              ← opcional
     recuperação, Cartões didáticos, Teste sem consulta (meta 70%), Revisão de
     memória, Atividade no AVA.
   - `mba`: Gerar esqueleto, Vídeo, Ebook (só se ficou lacuna), Quiz.
+- `concluído: sim` logo abaixo de um título conclui aquele nível. O .md baixado
+  traz essa linha nas conclusões feitas a mão, e reimportar sem ela não reabre.
 - Os prefixos `Caderno:`, `Disciplina:` e `Sessão:` nos títulos são aceitos e
   removidos. Frontmatter e texto livre são ignorados.
 - **Importar mescla.** O que tem o mesmo nome (sem diferenciar maiúsculas) é
