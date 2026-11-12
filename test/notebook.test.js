@@ -186,3 +186,70 @@ test("o CSS tem a versão no nome, e as páginas apontam pra ele", async () => {
   assert.ok(renderErro("x", "y").includes(`href="${CAMINHO_ESTILO}"`));
   assert.ok(ESTILO.includes(".linha-item"));
 });
+
+// --- Auditoria de segurança (#5) ---------------------------------------------
+
+test("segurança: nomes do protótipo não quebram nada", () => {
+  for (const m of ["__proto__", "constructor", "toString", "hasOwnProperty"]) {
+    const { avisos } = lerMarkdown(`# A\n## D\nmodelo: ${m}\n### S\n`);
+    assert.match(avisos[0], /não existe/, m);
+  }
+  const db = banco.abrirBanco(":memory:");
+  const id = banco.importar(db, "ana", lerMarkdown("# A\n## D\n### S\n- M\n").cadernos).cadernos[0];
+  for (const tipo of ["__proto__", "constructor", "toString", "prototype"]) {
+    assert.doesNotThrow(() => banco.aplicarEdicao(db, "ana", id, [[`nome:${tipo}:1`, "x"], [`novo:${tipo}:1`, "x"]], `excluir:${tipo}:1`, MODELOS), tipo);
+    assert.equal(banco.cadernoDoItem(db, "ana", tipo, 1), null);
+  }
+  assert.doesNotThrow(() => banco.aplicarEdicao(db, "ana", id, [["novo:s:1", "S2"], ["modelo:s:1", "__proto__"]], "salvar", MODELOS));
+  assert.equal(banco.caderno(db, "ana", id).disciplinas[0].sessoes[1].materiais.length, 0, "modelo inválido cria sessão vazia");
+  assert.equal(banco.cadernoDoItem(db, "ana", "m", 1e20), null);
+});
+
+test("segurança: a leitura do .md é linear, sem travar com linha longa", () => {
+  let t = Date.now();
+  const r = lerMarkdown("# a" + " ".repeat(500_000) + "b");
+  assert.match(r.avisos[0], /passa de 2000/);
+  // O pior caso que ainda passa do limite de linha, repetido até os 512 KB.
+  const linha = "# a" + " ".repeat(1990) + "b\n";
+  lerMarkdown(linha.repeat(Math.floor((512 * 1024) / linha.length)));
+  assert.ok(Date.now() - t < 1000, `levou ${Date.now() - t} ms`);
+  // O "###" de fechamento sai; "C#" fica.
+  assert.equal(lerMarkdown("# C# ###\n").cadernos[0].nome, "C#");
+});
+
+test("segurança: invisíveis e direção bidirecional saem dos nomes", () => {
+  const { cadernos } = lerMarkdown("# A‮gnp.exe\u0007\n");
+  assert.equal(cadernos[0].nome, "Agnp.exe");
+  const db = banco.abrirBanco(":memory:");
+  assert.equal(banco.caderno(db, "ana", banco.criarCaderno(db, "ana", "B\u0000⁦x").id).nome, "Bx");
+  // Emoji compostos (com ZWJ) continuam inteiros.
+  assert.equal(banco.caderno(db, "ana", banco.criarCaderno(db, "ana", "Estudo 👩‍💻").id).nome, "Estudo 👩‍💻");
+});
+
+test("segurança: tetos por arquivo e por conta, rápidos e sem gravar pela metade", () => {
+  const db = banco.abrirBanco(":memory:");
+  const arquivo = (titulo, n) => `# ${titulo}\n## D\n### S\n` + Array.from({ length: n }, (_, i) => `- M${i}`).join("\n");
+
+  // Arquivo acima do teto: recusado antes de gravar, sem custo.
+  let t = Date.now();
+  assert.throws(() => banco.importar(db, "ana", lerMarkdown(arquivo("A", banco.LIMITE_IMPORTACAO)).cadernos), (e) => e.status === 413 && /por importação/.test(e.publico));
+  assert.ok(Date.now() - t < 200, `recusa levou ${Date.now() - t} ms`);
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM materiais").get().n, 0);
+
+  // Arquivos no teto, um depois do outro, até passar do teto da conta.
+  const porArquivo = banco.LIMITE_IMPORTACAO - 4;
+  const cabem = Math.floor(banco.LIMITE_ITENS / banco.LIMITE_IMPORTACAO);
+  t = Date.now();
+  for (let i = 0; i < cabem; i++) banco.importar(db, "ana", lerMarkdown(arquivo(`C${i}`, porArquivo)).cadernos);
+  const porImportacao = (Date.now() - t) / cabem;
+  assert.ok(porImportacao < 1000, `importação no teto levou ${porImportacao} ms`);
+  const antes = db.prepare("SELECT COUNT(*) n FROM materiais").get().n;
+  assert.throws(() => banco.importar(db, "ana", lerMarkdown(arquivo("Demais", porArquivo)).cadernos), (e) => e.status === 413 && /por conta/.test(e.publico));
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM materiais").get().n, antes, "rollback");
+  // Outra pessoa não é afetada pelo teto da Ana.
+  assert.ok(banco.criarCaderno(db, "bia", "B").id);
+  // Os cadernos avulsos também contam: completam as vagas e depois são recusados.
+  const criados = Array.from({ length: 10 }, (_, i) => banco.criarCaderno(db, "ana", `Avulso ${i}`));
+  assert.ok(criados.some((r) => r.id));
+  assert.match(criados.at(-1).erro, /limite/);
+});

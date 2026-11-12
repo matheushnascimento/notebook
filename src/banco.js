@@ -6,6 +6,26 @@ import { DatabaseSync } from "node:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 
+import { semPrototipo, limparTexto } from "./texto.js";
+
+// Teto de linhas por pessoa, somados os quatro níveis. Um caderno do CST tem
+// perto de 80; o teto existe pra um envio repetido não encher o disco.
+export const LIMITE_ITENS = 20000;
+// Teto de itens num arquivo .md só. Um ano de CST e MBA juntos fica perto de
+// mil; o teto limita o tempo que uma importação segura o servidor.
+export const LIMITE_IMPORTACAO = 5000;
+
+// Consultas preparadas uma vez por banco e por texto. Os nomes de tabela e
+// coluna vêm só das constantes deste arquivo, nunca do pedido.
+const preparadas = new WeakMap();
+function consulta(db, sql) {
+  let cache = preparadas.get(db);
+  if (!cache) preparadas.set(db, (cache = new Map()));
+  let stmt = cache.get(sql);
+  if (!stmt) cache.set(sql, (stmt = db.prepare(sql)));
+  return stmt;
+}
+
 export function abrirBanco(caminho) {
   if (caminho !== ":memory:") mkdirSync(dirname(caminho), { recursive: true });
   const db = new DatabaseSync(caminho);
@@ -41,6 +61,13 @@ export function abrirBanco(caminho) {
       concluido_em TEXT,
       UNIQUE (sessao_id, nome)
     );
+    -- A próxima posição de um item novo é MAX(ordem) entre os irmãos. Sem estes
+    -- índices, cada inserção varria os irmãos todos, e importar 20 mil materiais
+    -- numa sessão levava 86 s, com o servidor parado (2026-11-12).
+    CREATE INDEX IF NOT EXISTS cadernos_ordem ON cadernos (usuario, ordem);
+    CREATE INDEX IF NOT EXISTS disciplinas_ordem ON disciplinas (caderno_id, ordem);
+    CREATE INDEX IF NOT EXISTS sessoes_ordem ON sessoes (disciplina_id, ordem);
+    CREATE INDEX IF NOT EXISTS materiais_ordem ON materiais (sessao_id, ordem);
   `);
   return db;
 }
@@ -179,15 +206,29 @@ export function importar(db, usuario, cadernos) {
 
   const acharOuCriar = (tabela, pai, idPai, nome) => {
     const filtroPai = pai === "usuario" ? "usuario = ?" : `${pai} = ?`;
-    const achado = db.prepare(`SELECT id FROM ${tabela} WHERE ${filtroPai} AND nome = ?`).get(idPai, nome);
+    const achado = consulta(db, `SELECT id FROM ${tabela} WHERE ${filtroPai} AND nome = ?`).get(idPai, nome);
     if (achado) return { id: achado.id, novo: false };
-    const { ordem } = db.prepare(`SELECT COALESCE(MAX(ordem), -1) + 1 ordem FROM ${tabela} WHERE ${filtroPai}`).get(idPai);
-    const r = db.prepare(`INSERT INTO ${tabela} (${pai}, nome, ordem) VALUES (?, ?, ?)`).run(idPai, nome, ordem);
+    const { ordem } = consulta(db, `SELECT COALESCE(MAX(ordem), -1) + 1 ordem FROM ${tabela} WHERE ${filtroPai}`).get(idPai);
+    const r = consulta(db, `INSERT INTO ${tabela} (${pai}, nome, ordem) VALUES (?, ?, ?)`).run(idPai, nome, ordem);
     return { id: Number(r.lastInsertRowid), novo: true };
   };
   const marcar = db.prepare(
     "UPDATE materiais SET concluido_em = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ? AND concluido_em IS NULL",
   );
+
+  // Antes de gravar: um arquivo que passa do teto é recusado sem custar nada.
+  // Conta pelo tamanho da árvore, um teto por cima, já que itens repetidos
+  // seriam reaproveitados.
+  const chegando = cadernos.reduce(
+    (n, c) => n + 1 + c.disciplinas.reduce((m, d) => m + 1 + d.sessoes.reduce((k, s) => k + 1 + s.materiais.length, 0), 0),
+    0,
+  );
+  if (chegando > LIMITE_IMPORTACAO) {
+    throw Object.assign(new Error("arquivo grande demais"), {
+      status: 413,
+      publico: `O arquivo tem ${chegando.toLocaleString("pt-BR")} itens, e o limite por importação é ${LIMITE_IMPORTACAO.toLocaleString("pt-BR")}. Divida em arquivos menores.`,
+    });
+  }
 
   db.exec("BEGIN");
   try {
@@ -206,6 +247,7 @@ export function importar(db, usuario, cadernos) {
         }
       }
     }
+    conferirLimite(db, usuario);
     db.exec("COMMIT");
   } catch (erro) {
     db.exec("ROLLBACK");
@@ -219,30 +261,50 @@ export function importar(db, usuario, cadernos) {
 // Os quatro níveis em um molde só: c (caderno), d (disciplina), s (sessão),
 // m (material). "pai" é a coluna que liga o item ao nível de cima.
 
-const NIVEIS = {
+const NIVEIS = semPrototipo({
   c: { tabela: "cadernos", pai: "usuario", filhos: "d", nome: "o caderno" },
   d: { tabela: "disciplinas", pai: "caderno_id", filhos: "s", nome: "a disciplina" },
   s: { tabela: "sessoes", pai: "disciplina_id", filhos: "m", nome: "a sessão" },
   m: { tabela: "materiais", pai: "sessao_id", filhos: null, nome: "o material" },
-};
+});
+const PAI_DE = semPrototipo({ d: "c", s: "d", m: "s" });
+const nivel = (tipo) => (Object.hasOwn(NIVEIS, tipo) ? NIVEIS[tipo] : null);
 
 // O caderno a que um item pertence, se ele for da pessoa. É a checagem de dono
 // de toda edição: um id de outro caderno, ou de outra pessoa, devolve null.
-const CADERNO_DE = {
+const CADERNO_DE = semPrototipo({
   c: "SELECT c.id FROM cadernos c WHERE c.id = ? AND c.usuario = ?",
   d: "SELECT c.id FROM disciplinas d JOIN cadernos c ON c.id = d.caderno_id WHERE d.id = ? AND c.usuario = ?",
   s: `SELECT c.id FROM sessoes s JOIN disciplinas d ON d.id = s.disciplina_id
         JOIN cadernos c ON c.id = d.caderno_id WHERE s.id = ? AND c.usuario = ?`,
   m: `SELECT c.id FROM materiais m JOIN sessoes s ON s.id = m.sessao_id JOIN disciplinas d ON d.id = s.disciplina_id
         JOIN cadernos c ON c.id = d.caderno_id WHERE m.id = ? AND c.usuario = ?`,
-};
+});
 
 export function cadernoDoItem(db, usuario, tipo, id) {
-  if (!CADERNO_DE[tipo]) return null;
-  return db.prepare(CADERNO_DE[tipo]).get(id, usuario)?.id ?? null;
+  if (!Object.hasOwn(CADERNO_DE, tipo) || !Number.isSafeInteger(id)) return null;
+  return consulta(db, CADERNO_DE[tipo]).get(id, usuario)?.id ?? null;
 }
 
-const limparNome = (v) => String(v ?? "").replace(/\s+/g, " ").trim().slice(0, 200);
+const limparNome = limparTexto;
+
+function conferirLimite(db, usuario, chegando = 0) {
+  const { n } = db
+    .prepare(
+      `SELECT (SELECT COUNT(*) FROM cadernos WHERE usuario = ?1)
+            + (SELECT COUNT(*) FROM disciplinas d JOIN cadernos c ON c.id = d.caderno_id WHERE c.usuario = ?1)
+            + (SELECT COUNT(*) FROM sessoes s JOIN disciplinas d ON d.id = s.disciplina_id JOIN cadernos c ON c.id = d.caderno_id WHERE c.usuario = ?1)
+            + (SELECT COUNT(*) FROM materiais m JOIN sessoes s ON s.id = m.sessao_id JOIN disciplinas d ON d.id = s.disciplina_id
+                 JOIN cadernos c ON c.id = d.caderno_id WHERE c.usuario = ?1) n`,
+    )
+    .get(usuario);
+  if (n + chegando > LIMITE_ITENS) {
+    throw Object.assign(new Error("limite de itens"), {
+      status: 413,
+      publico: `Passaria do limite de ${LIMITE_ITENS.toLocaleString("pt-BR")} itens por conta. Nada foi gravado.`,
+    });
+  }
+}
 const repetido = (erro) => /UNIQUE/i.test(erro?.message ?? "");
 
 function paiDe(db, tipo, id) {
@@ -252,8 +314,8 @@ function paiDe(db, tipo, id) {
 
 function inserir(db, tipo, idPai, nome) {
   const { tabela, pai } = NIVEIS[tipo];
-  const { ordem } = db.prepare(`SELECT COALESCE(MAX(ordem), -1) + 1 ordem FROM ${tabela} WHERE ${pai} = ?`).get(idPai);
-  return Number(db.prepare(`INSERT INTO ${tabela} (${pai}, nome, ordem) VALUES (?, ?, ?)`).run(idPai, nome, ordem).lastInsertRowid);
+  const { ordem } = consulta(db, `SELECT COALESCE(MAX(ordem), -1) + 1 ordem FROM ${tabela} WHERE ${pai} = ?`).get(idPai);
+  return Number(consulta(db, `INSERT INTO ${tabela} (${pai}, nome, ordem) VALUES (?, ?, ?)`).run(idPai, nome, ordem).lastInsertRowid);
 }
 
 // Troca o item de lugar com o vizinho e renumera os irmãos de 0 a n, o que
@@ -292,10 +354,16 @@ function contarDentro(db, tipo, id) {
 export function criarCaderno(db, usuario, nome) {
   const limpo = limparNome(nome);
   if (!limpo) return { erro: "Dê um nome ao caderno." };
+  db.exec("BEGIN");
   try {
-    return { id: inserir(db, "c", usuario, limpo) };
+    const id = inserir(db, "c", usuario, limpo);
+    conferirLimite(db, usuario);
+    db.exec("COMMIT");
+    return { id };
   } catch (erro) {
+    db.exec("ROLLBACK");
     if (repetido(erro)) return { erro: `Já existe um caderno chamado "${limpo}".` };
+    if (erro.publico) return { erro: erro.publico };
     throw erro;
   }
 }
@@ -314,12 +382,15 @@ export function aplicarEdicao(db, usuario, cadernoId, campos, acao, modelos) {
   const resultado = { avisos, foco: null, confirmar: null, excluiuCaderno: false };
   const doCaderno = (tipo, id) => cadernoDoItem(db, usuario, tipo, id) === cadernoId;
   if (!doCaderno("c", cadernoId)) return null;
+  // Índice dos campos pelo nome, montado uma vez: buscar o modelo de cada
+  // sessão nova numa lista era O(n²) no número de campos do envio.
+  const porNome = new Map(campos);
 
   db.exec("BEGIN");
   try {
     for (const [chave, valor] of campos) {
       const [campo, tipo, idTexto] = chave.split(":");
-      if (campo !== "nome" || !NIVEIS[tipo]) continue;
+      if (campo !== "nome" || !nivel(tipo)) continue;
       const id = tipo === "c" ? cadernoId : Number(idTexto);
       if (!doCaderno(tipo, id)) continue;
       const nome = limparNome(valor);
@@ -338,14 +409,15 @@ export function aplicarEdicao(db, usuario, cadernoId, campos, acao, modelos) {
       if (campo !== "novo") continue;
       const nome = limparNome(valor);
       if (!nome) continue;
-      const nivelPai = { d: "c", s: "d", m: "s" }[tipo];
-      if (!nivelPai) continue;
+      if (!Object.hasOwn(PAI_DE, tipo)) continue;
+      const nivelPai = PAI_DE[tipo];
       const idPai = tipo === "d" ? cadernoId : Number(idTexto);
       if (!doCaderno(nivelPai, idPai)) continue;
       try {
         const id = inserir(db, tipo, idPai, nome);
         resultado.foco = `${tipo}-${id}`;
-        const modelo = tipo === "s" ? modelos[campos.find(([k]) => k === `modelo:s:${idTexto}`)?.[1]] : null;
+        const escolhido = tipo === "s" ? porNome.get(`modelo:s:${idTexto}`) : null;
+        const modelo = escolhido && Object.hasOwn(modelos, escolhido) ? modelos[escolhido] : null;
         for (const material of modelo ?? []) inserir(db, "m", id, material);
       } catch (erro) {
         if (!repetido(erro)) throw erro;
@@ -355,7 +427,7 @@ export function aplicarEdicao(db, usuario, cadernoId, campos, acao, modelos) {
 
     const [verbo, tipo, idTexto] = String(acao ?? "").split(":");
     const id = tipo === "c" ? cadernoId : Number(idTexto);
-    if (NIVEIS[tipo] && doCaderno(tipo, id)) {
+    if (nivel(tipo) && doCaderno(tipo, id)) {
       resultado.foco ??= `${tipo}-${id}`;
       if (verbo === "subir" || verbo === "descer") mover(db, tipo, id, verbo === "subir" ? -1 : 1);
       if (verbo === "excluir" || verbo === "confirmar") {
@@ -367,10 +439,11 @@ export function aplicarEdicao(db, usuario, cadernoId, campos, acao, modelos) {
           const { pai } = paiDe(db, tipo, id);
           db.prepare(`DELETE FROM ${NIVEIS[tipo].tabela} WHERE id = ?`).run(id);
           if (tipo === "c") resultado.excluiuCaderno = true;
-          resultado.foco = tipo === "c" || tipo === "d" ? null : `${{ s: "d", m: "s" }[tipo]}-${pai}`;
+          resultado.foco = tipo === "c" || tipo === "d" ? null : `${PAI_DE[tipo]}-${pai}`;
         }
       }
     }
+    conferirLimite(db, usuario);
     db.exec("COMMIT");
   } catch (erro) {
     db.exec("ROLLBACK");

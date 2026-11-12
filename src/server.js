@@ -64,7 +64,7 @@ async function oidc() {
 const idAleatorio = () => randomBytes(32).toString("base64url");
 
 function lerCookies(req) {
-  const cookies = {};
+  const cookies = Object.create(null);
   for (const parte of (req.headers.cookie ?? "").split(";")) {
     const i = parte.indexOf("=");
     if (i > 0) cookies[parte.slice(0, i).trim()] = parte.slice(i + 1).trim();
@@ -306,11 +306,11 @@ async function importar(req, res, { sessao }) {
 // --- Roteamento --------------------------------------------------------------
 
 const EXEMPLO = readFileSync(new URL("../exemplos/cst-mba.md", import.meta.url));
-const ESTATICOS = {
+const ESTATICOS = Object.assign(Object.create(null), {
   // Nome com hash: pode ficar em cache pra sempre, porque CSS novo é outro nome.
   [CAMINHO_ESTILO]: { tipo: "text/css; charset=utf-8", conteudo: ESTILO, imutavel: true },
   "/modelo.md": { tipo: "text/markdown; charset=utf-8", conteudo: EXEMPLO, baixar: "modelo-notebook.md" },
-};
+});
 // Fontes e marca: lidas uma vez na partida, com lista fechada de nomes. Nenhuma
 // parte da URL vira caminho de arquivo, então não há como sair da pasta.
 for (const nome of ["eb-garamond-500", "newsreader-400", "newsreader-600"]) {
@@ -408,7 +408,8 @@ createServer(async (req, res) => {
   } catch (erro) {
     // Nada de token, nome ou IP no log: só o que falhou e onde.
     console.error(`${req.method} ${new URL(req.url, CONFIG.base).pathname}: ${erro.code ?? ""} ${erro.message}`);
-    if (!res.headersSent) responder(res, erro.status ?? 500, renderErro("Algo deu errado.", "Tente de novo em instantes."));
+    // Só mensagem escrita pra pessoa (erro.publico) chega à tela; o resto é genérico.
+    if (!res.headersSent) responder(res, erro.status ?? 500, renderErro(erro.publico ? "Não deu para gravar." : "Algo deu errado.", erro.publico ?? "Tente de novo em instantes."));
   }
 // No modo local, também só a interface de loopback.
 }).listen(CONFIG.porta, CONFIG.local ? "127.0.0.1" : undefined, () => console.log(`notebook ouvindo na porta ${CONFIG.porta}${CONFIG.local ? " (modo local, sem login)" : ""}`));
