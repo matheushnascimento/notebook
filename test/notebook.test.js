@@ -91,3 +91,91 @@ test("ninguém alcança o caderno de outra pessoa", () => {
   assert.ok(banco.excluirCaderno(db, "ana", c.id));
   assert.equal(db.prepare("SELECT COUNT(*) n FROM materiais").get().n, 0, "exclusão em cascata");
 });
+
+test("edição: montar um caderno inteiro sem .md", () => {
+  const db = banco.abrirBanco(":memory:");
+  const { id } = banco.criarCaderno(db, "ana", "  CST  ");
+  assert.ok(id);
+  assert.match(banco.criarCaderno(db, "ana", "cst").erro, /Já existe/);
+  assert.match(banco.criarCaderno(db, "ana", "   ").erro, /nome/);
+
+  let r = banco.aplicarEdicao(db, "ana", id, [["novo:d", "Prática em gestão"]], "salvar:c:" + id, MODELOS);
+  const d = banco.caderno(db, "ana", id).disciplinas[0];
+  assert.equal(r.foco, `d-${d.id}`);
+
+  r = banco.aplicarEdicao(db, "ana", id, [[`novo:s:${d.id}`, "PGUN1"], [`modelo:s:${d.id}`, "cst"]], `salvar:d:${d.id}`, MODELOS);
+  banco.aplicarEdicao(db, "ana", id, [[`novo:s:${d.id}`, "PGUN2"], [`modelo:s:${d.id}`, ""]], `salvar:d:${d.id}`, MODELOS);
+  let c = banco.caderno(db, "ana", id);
+  const [s1, s2] = c.disciplinas[0].sessoes;
+  assert.deepEqual(s1.materiais.map((m) => m.nome), MODELOS.cst);
+  assert.equal(s2.materiais.length, 0);
+
+  banco.aplicarEdicao(db, "ana", id, [[`novo:m:${s2.id}`, "Vídeo"]], `salvar:s:${s2.id}`, MODELOS);
+  banco.aplicarEdicao(db, "ana", id, [[`novo:m:${s2.id}`, "Ebook"]], `salvar:s:${s2.id}`, MODELOS);
+
+  // Renomear vários de uma vez e mover, num envio só.
+  c = banco.caderno(db, "ana", id);
+  const ebook = c.disciplinas[0].sessoes[1].materiais[1];
+  r = banco.aplicarEdicao(db, "ana", id, [[`nome:c:${id}`, "CST 2026"], [`nome:s:${s2.id}`, "PGUN2 - Unidade 2"], [`nome:m:${ebook.id}`, "Ebook 1/2"]], `subir:m:${ebook.id}`, MODELOS);
+  assert.deepEqual(r.avisos, []);
+  c = banco.caderno(db, "ana", id);
+  assert.equal(c.nome, "CST 2026");
+  assert.equal(c.disciplinas[0].sessoes[1].nome, "PGUN2 - Unidade 2");
+  assert.deepEqual(c.disciplinas[0].sessoes[1].materiais.map((m) => m.nome), ["Ebook 1/2", "Vídeo"]);
+
+  // Subir o primeiro não faz nada; descer a sessão 1 troca com a 2.
+  banco.aplicarEdicao(db, "ana", id, [], `subir:s:${s1.id}`, MODELOS);
+  banco.aplicarEdicao(db, "ana", id, [], `descer:s:${s1.id}`, MODELOS);
+  assert.deepEqual(banco.caderno(db, "ana", id).disciplinas[0].sessoes.map((s) => s.nome), ["PGUN2 - Unidade 2", "PGUN1"]);
+
+  // Nome repetido vira aviso, sem derrubar o resto do envio.
+  r = banco.aplicarEdicao(db, "ana", id, [[`nome:s:${s1.id}`, "pgun2 - unidade 2"], [`novo:m:${s1.id}`, "Quiz"]], "salvar", MODELOS);
+  assert.equal(r.avisos.length, 1);
+  assert.ok(banco.caderno(db, "ana", id).disciplinas[0].sessoes[1].materiais.some((m) => m.nome === "Quiz"));
+});
+
+test("edição: excluir pede confirmação quando há conteúdo", () => {
+  const db = banco.abrirBanco(":memory:");
+  const { cadernos } = banco.importar(db, "ana", lerMarkdown("# A\n## D\n### S\n- M1\n- [x] M2\n## Vazia\n").cadernos);
+  const id = cadernos[0];
+  let c = banco.caderno(db, "ana", id);
+  const [d, vazia] = c.disciplinas;
+  const s = d.sessoes[0];
+
+  // Material sai direto, e o foco volta pra sessão.
+  let r = banco.aplicarEdicao(db, "ana", id, [], `excluir:m:${s.materiais[0].id}`, MODELOS);
+  assert.equal(r.confirmar, null);
+  assert.equal(r.foco, `s-${s.id}`);
+  // Disciplina vazia sai direto; com conteúdo, pede confirmação e não apaga.
+  assert.equal(banco.aplicarEdicao(db, "ana", id, [], `excluir:d:${vazia.id}`, MODELOS).confirmar, null);
+  r = banco.aplicarEdicao(db, "ana", id, [], `excluir:d:${d.id}`, MODELOS);
+  assert.deepEqual({ ...r.confirmar }, { tipo: "d", id: d.id, nome: "D", rotulo: "a disciplina", sessoes: 1, materiais: 1 });
+  assert.equal(banco.caderno(db, "ana", id).disciplinas.length, 1);
+  banco.aplicarEdicao(db, "ana", id, [], `confirmar:d:${d.id}`, MODELOS);
+  assert.equal(banco.caderno(db, "ana", id).disciplinas.length, 0);
+
+  // O caderno sempre pede confirmação.
+  assert.ok(banco.aplicarEdicao(db, "ana", id, [], `excluir:c:${id}`, MODELOS).confirmar);
+  assert.ok(banco.aplicarEdicao(db, "ana", id, [], `confirmar:c:${id}`, MODELOS).excluiuCaderno);
+  assert.equal(banco.caderno(db, "ana", id), null);
+});
+
+test("edição: nada atravessa para outro caderno ou outra pessoa", () => {
+  const db = banco.abrirBanco(":memory:");
+  const [a, b] = banco.importar(db, "ana", lerMarkdown("# A\n## D\n### S\n- M\n# B\n## D\n### S\n- M\n").cadernos).cadernos;
+  const outro = banco.importar(db, "bia", lerMarkdown("# X\n## D\n### S\n- M\n").cadernos).cadernos[0];
+  const cb = banco.caderno(db, "ana", b);
+  const cx = banco.caderno(db, "bia", outro);
+  const mb = cb.disciplinas[0].sessoes[0].materiais[0];
+  const mx = cx.disciplinas[0].sessoes[0].materiais[0];
+
+  assert.equal(banco.aplicarEdicao(db, "bia", a, [], "salvar", MODELOS), null, "caderno de outra pessoa");
+  // Pelo editor do caderno A, itens do B e da Bia são ignorados.
+  banco.aplicarEdicao(
+    db, "ana", a,
+    [[`nome:m:${mb.id}`, "invadido"], [`nome:m:${mx.id}`, "invadido"], [`novo:m:${cx.disciplinas[0].sessoes[0].id}`, "invadido"]],
+    `confirmar:m:${mx.id}`, MODELOS,
+  );
+  assert.equal(banco.caderno(db, "ana", b).disciplinas[0].sessoes[0].materiais[0].nome, "M");
+  assert.deepEqual(banco.caderno(db, "bia", outro).disciplinas[0].sessoes[0].materiais.map((m) => m.nome), ["M"]);
+});
