@@ -73,6 +73,9 @@ O mesmo molde do painel da Conta mhdn (`central-contas/painel`):
 | Marca | Tokens do brandbook mhdn (papel/noite), EB Garamond nos títulos, Newsreader no texto, logo e favicon copiados de `central-contas/infra/marca`. |
 | Container | Sem root, só leitura, sem capabilities. Só o volume `/dados` é gravável. |
 
+Como cada entrada e cada arquivo é tratado, com a auditoria de 2026-11-12, está em
+[`docs/seguranca.md`](docs/seguranca.md).
+
 Por que não o **portão** da central-contas: ele só repassa `GET` a páginas
 estáticas e não diz ao app quem entrou. Aqui há formulários e progresso por
 pessoa.

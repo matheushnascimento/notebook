@@ -12,8 +12,10 @@
 // os materiais do modelo mais próximo. Linhas que não são título, lista ou
 // modelo são ignoradas, então dá para deixar anotações livres no arquivo.
 
+import { semPrototipo, limparTexto } from "./texto.js";
+
 // Os passos do modelo de estudo (CST por unidade, MBA FM2S por aula).
-export const MODELOS = {
+export const MODELOS = semPrototipo({
   cst: [
     "Gerar esqueleto",
     "Vídeo",
@@ -26,14 +28,25 @@ export const MODELOS = {
     "Atividade no AVA",
   ],
   mba: ["Gerar esqueleto", "Vídeo", "Ebook (só se ficou lacuna)", "Quiz"],
-};
+});
 
 export const LIMITE_BYTES = 512 * 1024;
+// Linha maior que isso não é título nem material de verdade: vira aviso, e
+// nenhum regex roda sobre ela.
+export const LIMITE_LINHA = 2000;
 
 const PREFIXOS = /^(caderno|disciplina|sess[aã]o)\s*:\s*/i;
 
+// Sem regex sobre a linha inteira: a versão anterior, /\s+#+\s*$/, tinha custo
+// quadrático numa sequência longa de espaços. Com 32 mil espaços num título,
+// 1,2 s; com os 512 KB aceitos, minutos com o servidor parado (2026-11-12).
 function nome(texto) {
-  return texto.replace(/\s+#+\s*$/, "").replace(PREFIXOS, "").trim().slice(0, 200);
+  let t = limparTexto(texto);
+  // O "###" de fechamento opcional dos títulos, só quando separado por espaço.
+  let fim = t.length;
+  while (fim > 0 && t[fim - 1] === "#") fim--;
+  if (fim < t.length && fim > 0 && t[fim - 1] === " ") t = t.slice(0, fim);
+  return limparTexto(t.replace(PREFIXOS, ""));
 }
 
 export function lerMarkdown(texto) {
@@ -52,8 +65,12 @@ export function lerMarkdown(texto) {
   }
 
   for (; i < linhas.length; i++) {
-    const t = linhas[i].trim();
     const n = i + 1;
+    if (linhas[i].length > LIMITE_LINHA) {
+      avisos.push(`Linha ${n}: passa de ${LIMITE_LINHA} caracteres.`);
+      continue;
+    }
+    const t = linhas[i].trim();
     if (!t) continue;
     let m;
 
@@ -78,7 +95,7 @@ export function lerMarkdown(texto) {
       disciplina.sessoes.push(sessao);
     } else if ((m = t.match(/^modelo\s*:\s*(\S+)/i))) {
       const chave = m[1].toLowerCase();
-      if (!MODELOS[chave]) {
+      if (!Object.hasOwn(MODELOS, chave)) {
         avisos.push(`Linha ${n}: modelo "${m[1]}" não existe. Use ${Object.keys(MODELOS).join(" ou ")}.`);
         continue;
       }
