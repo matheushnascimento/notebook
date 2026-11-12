@@ -3,6 +3,8 @@
 //
 // Tudo que vem do banco ou do .md passa por esc() antes de entrar no HTML.
 
+import { createHash } from "node:crypto";
+
 import { MODELOS } from "./markdown.js";
 
 const esc = (valor) =>
@@ -26,7 +28,7 @@ function pagina(titulo, corpo, { usuario, migalhas = [] } = {}) {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(titulo)} · notebook mhdn</title>
 <link rel="icon" href="/marca/favicon-livro-simples.svg">
-<link rel="stylesheet" href="/estilo.css">
+<link rel="stylesheet" href="${CAMINHO_ESTILO}">
 </head>
 <body>
 <main>
@@ -438,3 +440,8 @@ select { font: 400 15px/22px var(--texto); color: var(--tinta); background: var(
 }
 footer { text-align: center; color: var(--grafite); font-size: 15px; line-height: 23px; padding: 24px 16px; }
 `;
+
+// O CSS sai com a versão no nome. O Cloudflare guarda estático por 4 horas, e
+// com nome fixo o editor novo apareceu em produção com o CSS velho, sem estilo
+// (2026-11-12). Com o hash do conteúdo, CSS novo é endereço novo.
+export const CAMINHO_ESTILO = `/estilo.${createHash("sha256").update(ESTILO).digest("hex").slice(0, 12)}.css`;
