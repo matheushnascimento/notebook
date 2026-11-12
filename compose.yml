@@ -3,6 +3,8 @@
 # Stack separada da Conta mhdn (central-contas): reiniciar o notebook não
 # derruba o login, e o contrário também vale.
 
+name: notebook
+
 services:
   notebook:
     build: .

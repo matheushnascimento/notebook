@@ -52,7 +52,7 @@ function contador(no) {
 
 // --- Início ------------------------------------------------------------------
 
-export function renderInicio({ usuario, cadernos }) {
+export function renderInicio({ usuario, cadernos, erro = null, nomeNovo = "" }) {
   const cartoes = cadernos.map(
     (c) => `
 <a class="cartao" href="/caderno/${c.id}">
@@ -65,12 +65,19 @@ export function renderInicio({ usuario, cadernos }) {
   const vazio = `
 <section>
   <h2>Nenhum caderno ainda</h2>
-  <p>Monte os cadernos a partir de um arquivo .md, com os cadernos, as disciplinas, as sessões e os materiais.</p>
+  <p>Crie um caderno aqui embaixo e monte as disciplinas, as sessões e os materiais pela edição, ou traga tudo de uma vez num arquivo .md.</p>
   <p><a class="botao" href="/importar">Importar um .md</a> <a href="/modelo.md">Baixar o exemplo</a></p>
 </section>`;
+  const novo = `
+<form class="novo-caderno" method="post" action="/caderno/novo">
+  <label for="novo-caderno">Novo caderno</label>
+  <div class="linha-campo"><input id="novo-caderno" name="nome" required maxlength="200" placeholder="CST, MBA FM2S..." value="${esc(nomeNovo)}"><button type="submit">Criar</button></div>
+  ${erro ? `<p class="aviso" role="alert">${esc(erro)}</p>` : ""}
+</form>`;
   const corpo = `
 <div class="linha-titulo"><h1>Seus cadernos</h1><a class="botao" href="/importar">Importar .md</a></div>
-${cadernos.length ? cartoes.join("") : vazio}`;
+${cadernos.length ? cartoes.join("") : vazio}
+${novo}`;
   return pagina("Cadernos", corpo, { usuario });
 }
 
@@ -108,9 +115,9 @@ export function renderCaderno({ usuario, caderno: c, aviso }) {
 ${aviso ? `<p class="aviso-ok" role="status">${esc(aviso)}</p>` : ""}
 <div class="linha-titulo"><h1>${esc(c.nome)}</h1>${contador(c)}</div>
 ${barra(c, `Progresso de ${c.nome}`)}
-<p class="detalhe">${c.sessoesConcluidas} de ${c.sessoesTotal} sessões concluídas</p>
+<div class="linha-titulo"><p class="detalhe">${c.sessoesConcluidas} de ${c.sessoesTotal} sessões concluídas</p><a class="botao secundario" href="/caderno/${c.id}/editar">Editar</a></div>
 ${continuar}
-${disciplinas.join("") || "<section><p>Este caderno ainda não tem disciplinas. Importe um .md com elas.</p></section>"}
+${disciplinas.join("") || `<section><p>Este caderno ainda não tem disciplinas.</p><p><a class="botao" href="/caderno/${c.id}/editar">Montar o caderno</a></p></section>`}
 <section class="acoes">
   <h2>Caderno</h2>
   <p><a class="botao" href="/importar">Acrescentar por .md</a> <a href="/caderno/${c.id}.md">Baixar como .md</a></p>
@@ -148,7 +155,7 @@ export function renderSessao({ usuario, caderno: c, sessao: s, anterior, seguint
 <div class="linha-titulo"><h1>${esc(s.nome)}</h1>${contador(s)}</div>
 ${barra(s, `Progresso de ${s.nome}`)}
 <section>
-  ${materiais.length ? `<ul class="materiais">${materiais.join("")}</ul>` : "<p>Esta sessão não tem materiais. Acrescente pelo .md.</p>"}
+  ${materiais.length ? `<ul class="materiais">${materiais.join("")}</ul>` : "<p>Esta sessão ainda não tem materiais.</p>"}
   ${
     materiais.length
       ? `<div class="em-lote">
@@ -158,8 +165,105 @@ ${barra(s, `Progresso de ${s.nome}`)}
       : ""
   }
 </section>
+<p><a href="/caderno/${c.id}/editar?foco=s-${s.id}#s-${s.id}">Editar esta sessão</a></p>
 <nav class="vizinhas" aria-label="Outras sessões">${vizinha(anterior, "Anterior")}${vizinha(seguinte, "Seguinte")}</nav>`;
   return pagina(s.nome, corpo, { usuario, migalhas: [[c.nome, `/caderno/${c.id}`], [s.nome]] });
+}
+
+// --- Editar ------------------------------------------------------------------
+//
+// A árvore do caderno em listas aninhadas, num formulário só. Cada envio salva
+// todos os nomes e os itens novos digitados, e depois faz a ação do botão
+// apertado. O primeiro botão do formulário é o Salvar, então Enter em qualquer
+// campo salva. Sem JavaScript: subir e descer no lugar de arrastar.
+
+function controles(tipo, id, nome, { primeiro, ultimo }) {
+  const botao = (verbo, simbolo, rotulo, desligado, classe = "") =>
+    `<button type="submit" name="acao" value="${verbo}:${tipo}:${id}" class="icone${classe}" title="${rotulo}" aria-label="${esc(`${rotulo}: ${nome}`)}"${desligado ? " disabled" : ""}>${simbolo}</button>`;
+  return `<span class="controles">${botao("subir", "&uarr;", "Subir", primeiro)}${botao("descer", "&darr;", "Descer", ultimo)}${botao("excluir", "&times;", "Excluir", false, " excluir")}</span>`;
+}
+
+function linha(tipo, id, nome, rotulo, posicao, extra = "") {
+  return `<div class="linha-item">
+    <input name="nome:${tipo}:${id}" value="${esc(nome)}" maxlength="200" required aria-label="${esc(rotulo)}">${extra}${controles(tipo, id, nome, posicao)}
+  </div>`;
+}
+
+function novo(campo, placeholder, botaoValor, rotulo, extra = "") {
+  return `<li class="novo"><div class="linha-item"><input name="${campo}" maxlength="200" placeholder="${esc(placeholder)}" aria-label="${esc(rotulo)}">${extra}<button type="submit" name="acao" value="${botaoValor}" class="secundario">Acrescentar</button></div></li>`;
+}
+
+const posicao = (lista, i) => ({ primeiro: i === 0, ultimo: i === lista.length - 1 });
+
+export function renderEditar({ usuario, caderno: c, avisos = [], confirmar = null, modelos }) {
+  const escolhaModelo = (idDisciplina) =>
+    `<select name="modelo:s:${idDisciplina}" aria-label="Modelo da sessão nova"><option value="">vazia</option>${Object.keys(modelos)
+      .map((m) => `<option value="${m}">modelo ${m}</option>`)
+      .join("")}</select>`;
+
+  const arvore = c.disciplinas
+    .map(
+      (d, i) => `<li id="d-${d.id}" class="nivel-d">
+  ${linha("d", d.id, d.nome, "Nome da disciplina", posicao(c.disciplinas, i))}
+  <ol class="filhos">
+    ${d.sessoes
+      .map(
+        (s, j) => `<li id="s-${s.id}" class="nivel-s">
+      ${linha("s", s.id, s.nome, `Nome da sessão, em ${d.nome}`, posicao(d.sessoes, j), `<span class="contador">${s.feitos}/${s.total}</span>`)}
+      <ol class="filhos">
+        ${s.materiais
+          .map(
+            (m, k) => `<li id="m-${m.id}" class="nivel-m">${linha("m", m.id, m.nome, `Nome do material, em ${s.nome}`, posicao(s.materiais, k), m.feito ? '<span class="caixa marcada" title="concluído" aria-label="concluído"></span>' : '<span class="caixa" title="em aberto" aria-label="em aberto"></span>')}</li>`,
+          )
+          .join("")}
+        ${novo(`novo:m:${s.id}`, "Novo material", `salvar:s:${s.id}`, `Novo material em ${s.nome}`)}
+      </ol>
+    </li>`,
+      )
+      .join("")}
+    ${novo(`novo:s:${d.id}`, "Nova sessão", `salvar:d:${d.id}`, `Nova sessão em ${d.nome}`, escolhaModelo(d.id))}
+  </ol>
+</li>`,
+    )
+    .join("");
+
+  const confirmacao = confirmar
+    ? `<section class="alerta" id="confirmar" role="alert">
+  <h2>Excluir ${esc(confirmar.rotulo)} ${esc(confirmar.nome)}?</h2>
+  <p>${
+    confirmar.tipo === "s"
+      ? `Sai junto ${confirmar.materiais === 1 ? "1 material" : `${confirmar.materiais} materiais`}, com o progresso.`
+      : `Sai junto ${confirmar.sessoes === 1 ? "1 sessão" : `${confirmar.sessoes} sessões`} e ${confirmar.materiais === 1 ? "1 material" : `${confirmar.materiais} materiais`}, com o progresso.`
+  } Não dá para desfazer.</p>
+  <div class="em-lote"><button type="submit" name="acao" value="confirmar:${confirmar.tipo}:${confirmar.id}" class="perigo">Excluir</button><a class="botao secundario" href="/caderno/${c.id}/editar#${confirmar.tipo}-${confirmar.id}">Cancelar</a></div>
+</section>`
+    : "";
+
+  const listaAvisos = avisos.length ? `<section class="alerta" role="alert"><ul>${avisos.map((a) => `<li>${esc(a)}</li>`).join("")}</ul></section>` : "";
+
+  const corpo = `
+<form method="post" action="/caderno/${c.id}/editar" class="editor">
+  <div class="barra-salvar"><h1>Editar</h1><span class="em-lote"><button type="submit" name="acao" value="salvar">Salvar</button><a class="botao secundario" href="/caderno/${c.id}">Concluir</a></span></div>
+  ${confirmacao}
+  ${listaAvisos}
+  <section>
+    <label for="nome-caderno">Nome do caderno</label>
+    <div class="linha-item" id="c-${c.id}"><input id="nome-caderno" name="nome:c:${c.id}" value="${esc(c.nome)}" maxlength="200" required>${controles("c", c.id, c.nome, { primeiro: false, ultimo: false })}</div>
+    <p class="detalhe">As setas mudam a posição do caderno na lista de cadernos.</p>
+  </section>
+  <section>
+    <h2>Disciplinas, sessões e materiais</h2>
+    <ol class="arvore">
+      ${arvore}
+      ${novo("novo:d", "Nova disciplina", `salvar:c:${c.id}`, "Nova disciplina")}
+    </ol>
+    <p class="detalhe">Os nomes digitados são salvos com qualquer botão. Uma sessão nova com modelo já vem com os materiais dele: ${Object.entries(modelos)
+      .map(([m, passos]) => `<strong>${m}</strong> (${passos.length} materiais)`)
+      .join(", ")}.</p>
+  </section>
+  <p><button type="submit" name="acao" value="salvar">Salvar</button></p>
+</form>`;
+  return pagina(`Editar ${c.nome}`, corpo, { usuario, migalhas: [[c.nome, `/caderno/${c.id}`], ["Editar"]] });
 }
 
 // --- Importar ----------------------------------------------------------------
@@ -301,5 +405,36 @@ pre { font-family: "Courier New", Courier, monospace; background: var(--papel); 
 .alerta li { padding: 4px 0; }
 .aviso-ok { background: var(--anil-claro); border-radius: var(--raio-md); padding: 10px 14px; }
 .acoes li { padding: 6px 0; }
+.linha-campo { display: flex; gap: 8px; }
+.linha-campo input, .linha-item input { flex: 1; min-width: 0; font: 400 17px/26px var(--texto); color: var(--tinta); background: var(--papel); border: 1px solid var(--linha); border-radius: 8px; padding: 6px 10px; }
+.linha-campo input:focus, .linha-item input:focus, select:focus { outline: 2px solid var(--anil); outline-offset: 1px; border-color: var(--anil); }
+.novo-caderno { margin-top: 24px; }
+.aviso { color: var(--vermelho); margin-top: 8px; }
+
+.barra-salvar { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; background: var(--papel); padding: 8px 0; border-bottom: 1px solid var(--linha); }
+.barra-salvar h1 { margin: 0; }
+.arvore, .filhos { list-style: none; margin: 0; padding: 0; }
+.filhos { margin: 4px 0 8px 14px; padding-left: 12px; border-left: 2px solid var(--linha); }
+.arvore > li { padding: 12px 0; border-top: 1px solid var(--linha); }
+.arvore > li:first-child { border-top: 0; }
+.nivel-d > .linha-item input { font: 500 20px/28px var(--titulo); color: var(--anil); }
+.nivel-s > .linha-item input { font-weight: 600; }
+.linha-item { display: flex; align-items: center; gap: 6px; padding: 3px 0; }
+.linha-item .contador { font-size: 13px; }
+.controles { display: inline-flex; gap: 2px; flex: none; }
+button.icone { width: 34px; height: 34px; padding: 0; display: inline-grid; place-items: center; background: transparent; color: var(--anil); border: 1px solid transparent; border-radius: 8px; font: 600 18px/1 var(--texto); }
+button.icone:hover:not(:disabled) { border-color: var(--linha); background: var(--papel); }
+button.icone:disabled { color: var(--linha); cursor: default; }
+button.icone.excluir { color: var(--vermelho); }
+.novo .linha-item input { border-style: dashed; background: transparent; }
+.novo button.secundario { padding: 5px 12px; font-size: 15px; }
+select { font: 400 15px/22px var(--texto); color: var(--tinta); background: var(--papel); border: 1px solid var(--linha); border-radius: 8px; padding: 6px 4px; max-width: 8.5em; }
+.botao.secundario { background: transparent; color: var(--anil); border: 1px solid var(--anil); padding: 7px 14px; }
+:target { scroll-margin-top: 72px; }
+:target > .linha-item input { border-color: var(--anil); }
+@media (max-width: 480px) {
+  .filhos { margin-left: 4px; padding-left: 8px; }
+  button.icone { width: 30px; }
+}
 footer { text-align: center; color: var(--grafite); font-size: 15px; line-height: 23px; padding: 24px 16px; }
 `;

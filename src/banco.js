@@ -213,3 +213,168 @@ export function importar(db, usuario, cadernos) {
   }
   return resultado;
 }
+
+// --- Edição pela interface ---------------------------------------------------
+//
+// Os quatro níveis em um molde só: c (caderno), d (disciplina), s (sessão),
+// m (material). "pai" é a coluna que liga o item ao nível de cima.
+
+const NIVEIS = {
+  c: { tabela: "cadernos", pai: "usuario", filhos: "d", nome: "o caderno" },
+  d: { tabela: "disciplinas", pai: "caderno_id", filhos: "s", nome: "a disciplina" },
+  s: { tabela: "sessoes", pai: "disciplina_id", filhos: "m", nome: "a sessão" },
+  m: { tabela: "materiais", pai: "sessao_id", filhos: null, nome: "o material" },
+};
+
+// O caderno a que um item pertence, se ele for da pessoa. É a checagem de dono
+// de toda edição: um id de outro caderno, ou de outra pessoa, devolve null.
+const CADERNO_DE = {
+  c: "SELECT c.id FROM cadernos c WHERE c.id = ? AND c.usuario = ?",
+  d: "SELECT c.id FROM disciplinas d JOIN cadernos c ON c.id = d.caderno_id WHERE d.id = ? AND c.usuario = ?",
+  s: `SELECT c.id FROM sessoes s JOIN disciplinas d ON d.id = s.disciplina_id
+        JOIN cadernos c ON c.id = d.caderno_id WHERE s.id = ? AND c.usuario = ?`,
+  m: `SELECT c.id FROM materiais m JOIN sessoes s ON s.id = m.sessao_id JOIN disciplinas d ON d.id = s.disciplina_id
+        JOIN cadernos c ON c.id = d.caderno_id WHERE m.id = ? AND c.usuario = ?`,
+};
+
+export function cadernoDoItem(db, usuario, tipo, id) {
+  if (!CADERNO_DE[tipo]) return null;
+  return db.prepare(CADERNO_DE[tipo]).get(id, usuario)?.id ?? null;
+}
+
+const limparNome = (v) => String(v ?? "").replace(/\s+/g, " ").trim().slice(0, 200);
+const repetido = (erro) => /UNIQUE/i.test(erro?.message ?? "");
+
+function paiDe(db, tipo, id) {
+  const { tabela, pai } = NIVEIS[tipo];
+  return db.prepare(`SELECT ${pai} pai, nome FROM ${tabela} WHERE id = ?`).get(id);
+}
+
+function inserir(db, tipo, idPai, nome) {
+  const { tabela, pai } = NIVEIS[tipo];
+  const { ordem } = db.prepare(`SELECT COALESCE(MAX(ordem), -1) + 1 ordem FROM ${tabela} WHERE ${pai} = ?`).get(idPai);
+  return Number(db.prepare(`INSERT INTO ${tabela} (${pai}, nome, ordem) VALUES (?, ?, ?)`).run(idPai, nome, ordem).lastInsertRowid);
+}
+
+// Troca o item de lugar com o vizinho e renumera os irmãos de 0 a n, o que
+// também conserta ordens repetidas que tenham ficado de importações antigas.
+function mover(db, tipo, id, passo) {
+  const { tabela, pai } = NIVEIS[tipo];
+  const { pai: idPai } = paiDe(db, tipo, id);
+  const irmaos = db.prepare(`SELECT id FROM ${tabela} WHERE ${pai} = ? ORDER BY ordem, id`).all(idPai).map((l) => l.id);
+  const i = irmaos.indexOf(id);
+  const j = i + passo;
+  if (i < 0 || j < 0 || j >= irmaos.length) return;
+  [irmaos[i], irmaos[j]] = [irmaos[j], irmaos[i]];
+  const ordenar = db.prepare(`UPDATE ${tabela} SET ordem = ? WHERE id = ?`);
+  irmaos.forEach((irmao, ordem) => ordenar.run(ordem, irmao));
+}
+
+function contarDentro(db, tipo, id) {
+  // Quantas sessões e materiais saem junto, pra confirmação de exclusão dizer.
+  if (tipo === "c") {
+    return db
+      .prepare(
+        `SELECT COUNT(DISTINCT s.id) sessoes, COUNT(m.id) materiais FROM disciplinas d
+           LEFT JOIN sessoes s ON s.disciplina_id = d.id LEFT JOIN materiais m ON m.sessao_id = s.id WHERE d.caderno_id = ?`,
+      )
+      .get(id);
+  }
+  if (tipo === "d") {
+    return db
+      .prepare("SELECT COUNT(DISTINCT s.id) sessoes, COUNT(m.id) materiais FROM sessoes s LEFT JOIN materiais m ON m.sessao_id = s.id WHERE s.disciplina_id = ?")
+      .get(id);
+  }
+  if (tipo === "s") return { sessoes: 0, materiais: db.prepare("SELECT COUNT(*) n FROM materiais WHERE sessao_id = ?").get(id).n };
+  return { sessoes: 0, materiais: 0 };
+}
+
+export function criarCaderno(db, usuario, nome) {
+  const limpo = limparNome(nome);
+  if (!limpo) return { erro: "Dê um nome ao caderno." };
+  try {
+    return { id: inserir(db, "c", usuario, limpo) };
+  } catch (erro) {
+    if (repetido(erro)) return { erro: `Já existe um caderno chamado "${limpo}".` };
+    throw erro;
+  }
+}
+
+// Aplica um envio do editor do caderno, numa transação só:
+//   1. os renomes (campos nome:<tipo>:<id>, e nome:c para o caderno);
+//   2. os itens novos (novo:d, novo:s:<disciplina>, novo:m:<sessão>), com o
+//      modelo opcional da sessão nova em modelo:s:<disciplina>;
+//   3. a ação do botão apertado: subir, descer, excluir ou confirmar.
+// Assim nada digitado se perde quando a pessoa aperta um botão de outra linha.
+//
+// Excluir item vazio, ou material, é direto. Excluir algo com conteúdo pede
+// confirmação: devolve { confirmar } e só apaga quando volta como "confirmar".
+export function aplicarEdicao(db, usuario, cadernoId, campos, acao, modelos) {
+  const avisos = [];
+  const resultado = { avisos, foco: null, confirmar: null, excluiuCaderno: false };
+  const doCaderno = (tipo, id) => cadernoDoItem(db, usuario, tipo, id) === cadernoId;
+  if (!doCaderno("c", cadernoId)) return null;
+
+  db.exec("BEGIN");
+  try {
+    for (const [chave, valor] of campos) {
+      const [campo, tipo, idTexto] = chave.split(":");
+      if (campo !== "nome" || !NIVEIS[tipo]) continue;
+      const id = tipo === "c" ? cadernoId : Number(idTexto);
+      if (!doCaderno(tipo, id)) continue;
+      const nome = limparNome(valor);
+      const atual = paiDe(db, tipo, id);
+      if (!nome || nome === atual.nome) continue;
+      try {
+        db.prepare(`UPDATE ${NIVEIS[tipo].tabela} SET nome = ? WHERE id = ?`).run(nome, id);
+      } catch (erro) {
+        if (!repetido(erro)) throw erro;
+        avisos.push(`Não renomeei "${atual.nome}": já existe "${nome}" no mesmo lugar.`);
+      }
+    }
+
+    for (const [chave, valor] of campos) {
+      const [campo, tipo, idTexto] = chave.split(":");
+      if (campo !== "novo") continue;
+      const nome = limparNome(valor);
+      if (!nome) continue;
+      const nivelPai = { d: "c", s: "d", m: "s" }[tipo];
+      if (!nivelPai) continue;
+      const idPai = tipo === "d" ? cadernoId : Number(idTexto);
+      if (!doCaderno(nivelPai, idPai)) continue;
+      try {
+        const id = inserir(db, tipo, idPai, nome);
+        resultado.foco = `${tipo}-${id}`;
+        const modelo = tipo === "s" ? modelos[campos.find(([k]) => k === `modelo:s:${idTexto}`)?.[1]] : null;
+        for (const material of modelo ?? []) inserir(db, "m", id, material);
+      } catch (erro) {
+        if (!repetido(erro)) throw erro;
+        avisos.push(`Não acrescentei "${nome}": já existe um item com esse nome no mesmo lugar.`);
+      }
+    }
+
+    const [verbo, tipo, idTexto] = String(acao ?? "").split(":");
+    const id = tipo === "c" ? cadernoId : Number(idTexto);
+    if (NIVEIS[tipo] && doCaderno(tipo, id)) {
+      resultado.foco ??= `${tipo}-${id}`;
+      if (verbo === "subir" || verbo === "descer") mover(db, tipo, id, verbo === "subir" ? -1 : 1);
+      if (verbo === "excluir" || verbo === "confirmar") {
+        const dentro = contarDentro(db, tipo, id);
+        const temConteudo = tipo !== "m" && (tipo === "s" ? dentro.materiais > 0 : dentro.sessoes > 0 || dentro.materiais > 0 || tipo === "c");
+        if (verbo === "excluir" && temConteudo) {
+          resultado.confirmar = { tipo, id, nome: paiDe(db, tipo, id).nome, rotulo: NIVEIS[tipo].nome, ...dentro };
+        } else {
+          const { pai } = paiDe(db, tipo, id);
+          db.prepare(`DELETE FROM ${NIVEIS[tipo].tabela} WHERE id = ?`).run(id);
+          if (tipo === "c") resultado.excluiuCaderno = true;
+          resultado.foco = tipo === "c" || tipo === "d" ? null : `${{ s: "d", m: "s" }[tipo]}-${pai}`;
+        }
+      }
+    }
+    db.exec("COMMIT");
+  } catch (erro) {
+    db.exec("ROLLBACK");
+    throw erro;
+  }
+  return resultado;
+}

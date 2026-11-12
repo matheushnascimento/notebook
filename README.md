@@ -13,6 +13,23 @@ Cada nível mostra o contador de progresso (feitos/total e %) e a barra. Os
 materiais são marcados como concluídos ou não concluídos, e o caderno mostra o
 próximo material em aberto ("Continuar").
 
+## Editar pela interface
+
+"Novo caderno", no início, e "Editar", no caderno, abrem a árvore inteira em
+listas aninhadas: disciplinas, dentro delas as sessões, e dentro delas os
+materiais. Em cada item dá para renomear no próprio campo, subir (↑), descer (↓)
+e excluir (×). No fim de cada lista há um campo para acrescentar. Uma sessão nova
+pode vir vazia ou já com os materiais do modelo `cst` ou `mba`.
+
+- É um formulário só: qualquer botão salva tudo o que foi digitado antes de fazer
+  a sua ação, e Enter salva.
+- Excluir um material, ou um item vazio, é direto. Excluir algo com conteúdo
+  mostra quanto sai junto e pede confirmação. O caderno sempre pede.
+- Sem JavaScript, como o resto do app. Por isso as setas ficam no lugar de
+  arrastar e soltar.
+
+O .md continua servindo para montar muita coisa de uma vez e como backup.
+
 ## O formato .md
 
 ```markdown
@@ -66,9 +83,15 @@ pessoa.
 npm run local
 ```
 
-Abre em `http://localhost:9400`, **sem login** (`AUTENTICACAO=local`, um usuário
+Abre em `http://localhost:19400`, **sem login** (`AUTENTICACAO=local`, um usuário
 só), com o banco em `./dados/`. Não precisa de `npm install`: o `openid-client`
 só é carregado com login ligado.
+
+O modo local fica de propósito **fora da porta de produção** (9400) e só atende
+pedidos com `Host` `localhost` ou `127.0.0.1`. Em 2026-11-12 ele ocupou a 9400, e
+o túnel do Cloudflare, que aponta pra `localhost:9400`, o publicou em
+`notebook.mhdn.com.br` sem login. Agora, um pedido que chega pelo túnel recebe
+421.
 
 ```bash
 npm test
@@ -87,7 +110,8 @@ npm test
 4. Conferir: `curl -I https://notebook.mhdn.com.br/` responde `303` para
    `/entrar`.
 
-O progresso mora no volume `notebook_dados`. Backup é copiar
+O progresso mora no volume `notebook_dados`. O compose fixa o nome do projeto
+(`name: notebook`), então o volume tem esse nome em qualquer pasta. Backup é copiar
 `/dados/notebook.db` (ou baixar cada caderno como .md).
 
 | Variável | Padrão | Pra quê |

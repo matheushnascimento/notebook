@@ -17,8 +17,8 @@ import { readFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 
 import * as banco from "./banco.js";
-import { lerMarkdown, escreverMarkdown, LIMITE_BYTES } from "./markdown.js";
-import { renderInicio, renderCaderno, renderSessao, renderImportar, renderErro, ESTILO } from "./paginas.js";
+import { lerMarkdown, escreverMarkdown, LIMITE_BYTES, MODELOS } from "./markdown.js";
+import { renderInicio, renderCaderno, renderSessao, renderEditar, renderImportar, renderErro, ESTILO } from "./paginas.js";
 
 const CONFIG = {
   // Endereço de descoberta = emissor (issuer_mode per_provider, ADR-006 da
@@ -249,6 +249,37 @@ async function marcarSessao(req, res, { sessao, params }) {
   redirecionar(res, `/sessao/${id}`);
 }
 
+async function novoCaderno(req, res, { sessao }) {
+  const corpo = await lerCorpo(req);
+  const r = banco.criarCaderno(db, sessao.sub, corpo.get("nome"));
+  if (r.erro) {
+    return responder(res, 422, renderInicio({ usuario: sessao, cadernos: banco.arvore(db, sessao.sub), erro: r.erro, nomeNovo: String(corpo.get("nome") ?? "") }));
+  }
+  redirecionar(res, `/caderno/${r.id}/editar`);
+}
+
+function verEditar(req, res, { sessao, params }) {
+  const c = banco.caderno(db, sessao.sub, Number(params[0]));
+  if (!c) return naoEncontrado(res, sessao);
+  responder(res, 200, renderEditar({ usuario: sessao, caderno: c, modelos: MODELOS }));
+}
+
+async function editar(req, res, { sessao, params }) {
+  const id = Number(params[0]);
+  const corpo = await lerCorpo(req);
+  const campos = [...corpo.entries()].filter(([, v]) => typeof v === "string");
+  const r = banco.aplicarEdicao(db, sessao.sub, id, campos, corpo.get("acao"), MODELOS);
+  if (!r) return naoEncontrado(res, sessao);
+  if (r.excluiuCaderno) return redirecionar(res, "/");
+  // Com aviso ou pedido de confirmação, a página volta já com eles, em vez de
+  // redirecionar: o que precisa de atenção fica no topo, à vista.
+  if (r.avisos.length || r.confirmar) {
+    const status = r.avisos.length ? 422 : 200;
+    return responder(res, status, renderEditar({ usuario: sessao, caderno: banco.caderno(db, sessao.sub, id), avisos: r.avisos, confirmar: r.confirmar, modelos: MODELOS }));
+  }
+  redirecionar(res, `/caderno/${id}/editar${r.foco ? `#${r.foco}` : ""}`);
+}
+
 function formImportar(req, res, { sessao }) {
   responder(res, 200, renderImportar({ usuario: sessao }));
 }
@@ -293,7 +324,10 @@ const ROTAS = [
   ["GET", /^\/$/, inicio],
   ["GET", /^\/importar$/, formImportar],
   ["POST", /^\/importar$/, importar],
+  ["POST", /^\/caderno\/novo$/, novoCaderno],
   ["GET", /^\/caderno\/(\d+)$/, verCaderno],
+  ["GET", /^\/caderno\/(\d+)\/editar$/, verEditar],
+  ["POST", /^\/caderno\/(\d+)\/editar$/, editar],
   ["GET", /^\/caderno\/(\d+)\.md$/, baixarCaderno],
   ["POST", /^\/caderno\/(\d+)\/excluir$/, excluir],
   ["GET", /^\/sessao\/(\d+)$/, verSessao],
@@ -305,12 +339,24 @@ const ROTAS = [
 async function atender(req, res) {
   const url = new URL(req.url, CONFIG.base);
   const caminho = url.pathname;
+  // HEAD é atendido como GET: o Node descarta o corpo sozinho. Sem isso, a
+  // conferência com curl -I recebia 404.
+  const metodo = req.method === "HEAD" ? "GET" : req.method;
 
-  if (req.method === "GET" && caminho === "/saude") {
+  // O modo local não tem login, então só atende quem chama pela própria
+  // máquina. Em 2026-11-12 o npm run local ocupou a porta de produção, e o
+  // túnel do Cloudflare, que aponta pra localhost, o publicou em
+  // notebook.mhdn.com.br. O túnel manda o Host público, e aqui ele é recusado.
+  if (CONFIG.local && !/^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(req.headers.host ?? "")) {
+    res.writeHead(421, { "Content-Type": "text/plain; charset=utf-8" });
+    return res.end("modo local: só atende localhost\n");
+  }
+
+  if (metodo === "GET" && caminho === "/saude") {
     res.writeHead(200, { "Content-Type": "text/plain" });
     return res.end("ok");
   }
-  const estatico = req.method === "GET" && ESTATICOS[caminho];
+  const estatico = metodo === "GET" && ESTATICOS[caminho];
   if (estatico) {
     res.writeHead(200, {
       "Content-Type": estatico.tipo,
@@ -320,14 +366,14 @@ async function atender(req, res) {
     });
     return res.end(estatico.conteudo);
   }
-  if (req.method === "GET" && caminho === "/entrar") return entrar(req, res, { url });
-  if (req.method === "GET" && caminho === "/callback") return callback(req, res);
+  if (metodo === "GET" && caminho === "/entrar") return entrar(req, res, { url });
+  if (metodo === "GET" && caminho === "/callback") return callback(req, res);
 
   let rota = null;
   let params = null;
-  for (const [metodo, padrao, funcao] of ROTAS) {
+  for (const [metodoRota, padrao, funcao] of ROTAS) {
     const m = caminho.match(padrao);
-    if (m && metodo === req.method) {
+    if (m && metodoRota === metodo) {
       rota = funcao;
       params = m.slice(1);
       break;
@@ -337,7 +383,7 @@ async function atender(req, res) {
 
   const sessao = sessaoAtual(req);
   if (!sessao) {
-    if (req.method !== "GET") return responder(res, 401, renderErro("Sua sessão acabou.", "Entre de novo e repita a ação."));
+    if (metodo !== "GET") return responder(res, 401, renderErro("Sua sessão acabou.", "Entre de novo e repita a ação."));
     return redirecionar(res, `/entrar?volta=${encodeURIComponent(caminho)}`);
   }
   // Contra CSRF: toda ação tem de vir de uma página do próprio notebook. Além
@@ -363,4 +409,5 @@ createServer(async (req, res) => {
     console.error(`${req.method} ${new URL(req.url, CONFIG.base).pathname}: ${erro.code ?? ""} ${erro.message}`);
     if (!res.headersSent) responder(res, erro.status ?? 500, renderErro("Algo deu errado.", "Tente de novo em instantes."));
   }
-}).listen(CONFIG.porta, () => console.log(`notebook ouvindo na porta ${CONFIG.porta}${CONFIG.local ? " (modo local, sem login)" : ""}`));
+// No modo local, também só a interface de loopback.
+}).listen(CONFIG.porta, CONFIG.local ? "127.0.0.1" : undefined, () => console.log(`notebook ouvindo na porta ${CONFIG.porta}${CONFIG.local ? " (modo local, sem login)" : ""}`));

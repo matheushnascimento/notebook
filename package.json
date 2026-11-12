@@ -8,7 +8,7 @@
   },
   "scripts": {
     "start": "node src/server.js",
-    "local": "AUTENTICACAO=local BANCO=./dados/notebook.db BASE_URL=http://localhost:9400 PORTA=9400 node src/server.js",
+    "local": "AUTENTICACAO=local BANCO=./dados/notebook.db BASE_URL=http://localhost:19400 PORTA=19400 node src/server.js",
     "test": "node --test"
   },
   "dependencies": {
