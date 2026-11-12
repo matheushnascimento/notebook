@@ -13,7 +13,8 @@ Tudo o que vem de fora passa por um destes caminhos, e só por eles:
 | Caminho da URL | qualquer pedido | `server.js`, roteamento |
 | Cabeçalhos `Cookie`, `Origin` e `Host` | qualquer pedido | `server.js` |
 | `?volta=` do `/entrar` | link de login | `caminhoSeguro()` |
-| Formulários (urlencoded) | editor, novo caderno, marcar, excluir | `lerCorpo()`, `aplicarEdicao()` |
+| Formulários (urlencoded) | editor sem JavaScript, novo caderno, marcar, excluir | `lerCorpo()`, `aplicarEdicao()` |
+| JSON da API (`/api/caderno/:id`) | editor em React | `lerJson()`, `operar()` em `src/api.js` |
 | Arquivo `.md` (multipart) ou texto colado | importar | `lerCorpo()`, `lerMarkdown()`, `importar()` |
 | Resposta do login (code, state) | Conta mhdn | `openid-client` |
 
@@ -84,6 +85,23 @@ O editor é um formulário com campos `nome:<tipo>:<id>`, `novo:<tipo>:<id>`,
    confirmação é outro envio, com o mesmo dono conferido de novo.
 8. **Tudo numa transação,** com o teto da conta no fim.
 
+## 3b. API JSON do editor em React (#9), passo a passo
+
+1. **Só `Content-Type: application/json`**, ou 415. Um formulário de outro site
+   não consegue mandar JSON sem passar pelo CORS, que o notebook não libera.
+2. **`Origin` igual ao do notebook**, ou 403, como em todo `POST`.
+3. **No máximo 64 KB** por pedido, contados enquanto chegam. JSON que não lê dá 400.
+4. **Cada campo tem o tipo conferido:** `op` numa lista fechada, `tipo` em `c d s
+   m` (com `Set`, sem protótipo), ids e índice inteiros seguros, e nomes como
+   texto de até 1.000 caracteres antes da limpeza. Fora disso, 400.
+5. **Cada operação chama as mesmas funções do banco do formulário**, com as
+   mesmas checagens de dono e de caderno, os mesmos tetos e a mesma transação. A
+   única função nova é `moverPara()`, que confere dono e caderno do mesmo jeito.
+6. **Sem sessão, 401 em JSON.** Não há redirecionamento, porque quem chama é o
+   script.
+7. **A resposta é a árvore do caderno**, só com nome, id e progresso: nada de
+   `sub` nem de datas.
+
 ## 4. SQL
 
 **Nenhum texto do pedido entra no SQL.** Os valores vão sempre como parâmetros
@@ -91,14 +109,33 @@ O editor é um formulário com campos `nome:<tipo>:<id>`, `novo:<tipo>:<id>`,
 mas vêm só das constantes `NIVEIS` e `CADERNO_DE`, escolhidas pelo tipo depois
 da checagem do passo 3.1. As consultas ficam preparadas e reaproveitadas.
 
+## 4b. Os arquivos do React
+
+- **São gerados pelo Vite no build**, dentro do Docker, e não no servidor em
+  produção. A imagem final não tem Vite, React nem dnd-kit instalados, só os
+  arquivos gerados em `dist/`.
+- **São lidos na partida a partir do manifest do Vite.** Só entram nomes no
+  formato `app/<nome>-<hash>.<js|css>`; qualquer outro derruba a partida, em vez
+  de servir algo inesperado. Como as fontes, nenhuma parte da URL vira caminho.
+- **O nome tem hash, então o cache é imutável:** script novo é endereço novo, e o
+  cache do Cloudflare não serve versão velha.
+- **O build sai sem `eval` nem `new Function`** (conferido) e sem script inline
+  (`modulePreload: false`), por isso a CSP fica só com `script-src 'self'`.
+- **O React escapa todo texto.** `dangerouslySetInnerHTML` não é usado. O arraste
+  move os itens por `element.style`, que a CSP permite, e não por `style=""` no
+  HTML, que ela recusaria.
+
 ## 5. O que sai: HTML e downloads
 
 - **Todo texto vindo do banco ou do .md passa por `esc()`**, que troca
   `& < > " '`. Isso vale para conteúdo e para atributos (`value`, `aria-label`).
   Números (ids, contagens) e constantes do código entram sem escape.
-- **CSP sem script:** `default-src 'none'`, CSS, fontes e imagens só do próprio
-  site, `form-action` só para o próprio site e a Conta mhdn, `frame-ancestors
-  'none'`. Mesmo que algo escapasse, nenhum script rodaria.
+- **CSP:** `default-src 'none'`. `script-src 'self'` aceita só os arquivos do
+  React servidos pelo próprio notebook: nada inline, nada de `eval`, nada de
+  outro domínio. `connect-src 'self'` limita o `fetch` à própria API. CSS, fontes e
+  imagens só do próprio site, `form-action` só para o próprio site e a Conta mhdn,
+  `frame-ancestors 'none'`. Um texto que escapasse como HTML não viraria script,
+  porque script inline é recusado.
 - `X-Content-Type-Options: nosniff`, `Referrer-Policy: same-origin` e
   `Cache-Control: private, no-store` nas páginas.
 - **No download do .md,** o nome do arquivo é reduzido a letras, números, `-` e

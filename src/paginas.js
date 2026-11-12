@@ -6,6 +6,7 @@
 import { createHash } from "node:crypto";
 
 import { MODELOS } from "./markdown.js";
+import { SCRIPTS } from "./app.js";
 
 const esc = (valor) =>
   String(valor ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -275,7 +276,11 @@ export function renderEditar({ usuario, caderno: c, avisos = [], confirmar = nul
 
   const listaAvisos = avisos.length ? `<section class="alerta" role="alert"><ul>${avisos.map((a) => `<li>${esc(a)}</li>`).join("")}</ul></section>` : "";
 
+  // O formulário abaixo é o editor sem JavaScript. Com o bundle do React, ele
+  // monta por cima dele dentro de #editor-app, sem recarregar a página (#9).
+  const script = SCRIPTS.editor ? `<script type="module" src="${SCRIPTS.editor}"></script>` : "";
   const corpo = `
+<div id="editor-app" data-caderno="${c.id}">
 <form method="post" action="/caderno/${c.id}/editar" class="editor">
   <div class="barra-salvar"><h1>Editar</h1><span class="em-lote"><button type="submit" name="acao" value="salvar">Salvar</button><a class="botao secundario" href="/caderno/${c.id}">Concluir</a></span></div>
   ${confirmacao}
@@ -296,7 +301,9 @@ export function renderEditar({ usuario, caderno: c, avisos = [], confirmar = nul
       .join(", ")}.</p>
   </section>
   <p><button type="submit" name="acao" value="salvar">Salvar</button></p>
-</form>`;
+</form>
+</div>
+${script}`;
   return pagina(`Editar ${c.nome}`, corpo, { usuario, migalhas: [[c.nome, `/caderno/${c.id}`], ["Editar"]] });
 }
 
@@ -475,6 +482,15 @@ select { font: 400 15px/22px var(--texto); color: var(--tinta); background: var(
 }
 .conclusao { display: inline-flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 4px 0 8px; }
 .conclusao .detalhe { display: inline; }
+/* Editor em React (#9) */
+.estado { font-size: 15px; line-height: 23px; color: var(--grafite); }
+.estado-erro { color: var(--vermelho); font-weight: 600; }
+button.icone.alca { cursor: grab; color: var(--grafite); touch-action: none; }
+button.icone.alca:active { cursor: grabbing; }
+button.icone.marcar { width: 30px; }
+.arrastando { position: relative; z-index: 2; background: var(--papel-cartao); box-shadow: var(--sombra-folha); border-radius: 8px; opacity: 0.95; }
+.confirmar-linha { border: 1px solid var(--vermelho); border-radius: var(--raio-md); padding: 10px 14px; margin: 6px 0 8px; }
+.confirmar-linha p { margin: 0 0 8px; }
 footer { text-align: center; color: var(--grafite); font-size: 15px; line-height: 23px; padding: 24px 16px; }
 `;
 

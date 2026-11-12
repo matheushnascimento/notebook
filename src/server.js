@@ -17,6 +17,8 @@ import { readFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 
 import * as banco from "./banco.js";
+import { operar, arvoreJson } from "./api.js";
+import { ARQUIVOS_APP } from "./app.js";
 import { lerMarkdown, escreverMarkdown, LIMITE_BYTES, MODELOS } from "./markdown.js";
 import { renderInicio, renderCaderno, renderSessao, renderEditar, renderImportar, renderErro, ESTILO, CAMINHO_ESTILO } from "./paginas.js";
 
@@ -30,6 +32,10 @@ const CONFIG = {
   porta: Number(process.env.PORTA ?? 3000),
   banco: process.env.BANCO ?? "/dados/notebook.db",
   local: process.env.AUTENTICACAO === "local",
+  // Onde o modo local ouve: 127.0.0.1 por padrão, ou o IP da tailnet do
+  // homeserver (100.64.0.0/10), pra testar de outro aparelho em
+  // http://homeserver:19400. Nunca 0.0.0.0, que publicaria na rede local.
+  escuta: process.env.ESCUTA ?? "127.0.0.1",
 };
 
 // Só openid e profile: o notebook precisa do sub, pra separar o progresso de
@@ -44,6 +50,19 @@ const DEZ_MINUTOS = 10 * 60 * 1000;
 // dias. Vencida, entrar de novo é só um redirecionamento (sessão de 30 dias da
 // Conta mhdn e consentimento implícito).
 const SETE_DIAS = 7 * 24 * 60 * 60 * 1000;
+
+// O modo local nunca roda com um endereço da mhdn: seria o app sem login
+// publicado de verdade. Fora isso, o host de BASE_URL é aceito (ver atender).
+const HOST_LOCAL = CONFIG.local ? new URL(CONFIG.base).host : null;
+if (CONFIG.local && /(^|\.)mhdn\.com\.br$/i.test(new URL(CONFIG.base).hostname)) {
+  console.error("AUTENTICACAO=local com BASE_URL da mhdn: recusado. Use localhost ou o endereço da tailnet.");
+  process.exit(1);
+}
+const TAILNET = /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d{1,3}\.\d{1,3}$/;
+if (CONFIG.local && CONFIG.escuta !== "127.0.0.1" && !TAILNET.test(CONFIG.escuta)) {
+  console.error(`AUTENTICACAO=local com ESCUTA=${CONFIG.escuta}: recusado. Use 127.0.0.1 ou um IP da tailnet (100.64.0.0/10).`);
+  process.exit(1);
+}
 
 const db = banco.abrirBanco(CONFIG.banco);
 
@@ -81,7 +100,11 @@ function cookie(nome, valor, maxAgeSegundos) {
 const CABECALHOS_SEGURANCA = {
   "Content-Security-Policy": [
     "default-src 'none'",
+    // Script só do próprio notebook: os arquivos do React, com hash no nome.
+    // Nada inline e nada de eval.
+    "script-src 'self'",
     "style-src 'self'",
+    "connect-src 'self'",
     "img-src 'self'",
     "font-src 'self'",
     // O Sair passa por /sair, que redireciona pra Conta mhdn encerrar a sessão.
@@ -134,6 +157,31 @@ async function lerCorpo(req) {
     body: Buffer.concat(partes),
   });
   return pedido.formData();
+}
+
+// JSON da API: só com Content-Type application/json, que um formulário de
+// outro site não consegue mandar sem passar pelo CORS, e com teto de 64 KB.
+async function lerJson(req) {
+  if (!/^application\/json(;|$)/i.test(req.headers["content-type"] ?? "")) {
+    throw Object.assign(new Error("tipo de conteúdo"), { status: 415, publico: "Use Content-Type: application/json." });
+  }
+  const partes = [];
+  let tamanho = 0;
+  for await (const parte of req) {
+    tamanho += parte.length;
+    if (tamanho > 64 * 1024) throw Object.assign(new Error("json grande demais"), { status: 413, publico: "Pedido grande demais." });
+    partes.push(parte);
+  }
+  try {
+    return JSON.parse(Buffer.concat(partes).toString("utf8"));
+  } catch {
+    throw Object.assign(new Error("json inválido"), { status: 400, publico: "JSON inválido." });
+  }
+}
+
+function json(res, status, dado) {
+  res.writeHead(status, { ...CABECALHOS_SEGURANCA, "Content-Type": "application/json; charset=utf-8" });
+  res.end(JSON.stringify(dado));
 }
 
 // --- Login -------------------------------------------------------------------
@@ -249,6 +297,25 @@ async function marcarSessao(req, res, { sessao, params }) {
   redirecionar(res, `/sessao/${id}`);
 }
 
+// --- API do editor em React (#9) ---------------------------------------------
+
+function apiLer(req, res, { sessao, params }) {
+  const c = banco.caderno(db, sessao.sub, Number(params[0]));
+  if (!c) return json(res, 404, { erro: "Caderno não encontrado." });
+  json(res, 200, { caderno: arvoreJson(c) });
+}
+
+async function apiOperar(req, res, { sessao, params }) {
+  try {
+    const r = operar(db, sessao.sub, Number(params[0]), await lerJson(req));
+    if (!r) return json(res, 404, { erro: "Caderno não encontrado." });
+    json(res, 200, r);
+  } catch (erro) {
+    if (!erro.publico) throw erro;
+    json(res, erro.status ?? 400, { erro: erro.publico });
+  }
+}
+
 async function novoCaderno(req, res, { sessao }) {
   const corpo = await lerCorpo(req);
   const r = banco.criarCaderno(db, sessao.sub, corpo.get("nome"));
@@ -323,6 +390,8 @@ const ESTATICOS = Object.assign(Object.create(null), {
 for (const nome of ["eb-garamond-500", "newsreader-400", "newsreader-600"]) {
   ESTATICOS[`/fonts/${nome}.woff2`] = { tipo: "font/woff2", conteudo: readFileSync(new URL(`./fonts/${nome}.woff2`, import.meta.url)) };
 }
+// O frontend em React: arquivos com hash no nome, então cache imutável.
+for (const [caminho, arquivo] of Object.entries(ARQUIVOS_APP)) ESTATICOS[caminho] = { ...arquivo, imutavel: true };
 for (const nome of ["logo.svg", "favicon-livro-simples.svg"]) {
   ESTATICOS[`/marca/${nome}`] = { tipo: "image/svg+xml", conteudo: readFileSync(new URL(`./marca/${nome}`, import.meta.url)) };
 }
@@ -332,6 +401,8 @@ const ROTAS = [
   ["GET", /^\/$/, inicio],
   ["GET", /^\/importar$/, formImportar],
   ["POST", /^\/importar$/, importar],
+  ["GET", /^\/api\/caderno\/(\d+)$/, apiLer],
+  ["POST", /^\/api\/caderno\/(\d+)$/, apiOperar],
   ["POST", /^\/caderno\/novo$/, novoCaderno],
   ["GET", /^\/caderno\/(\d+)$/, verCaderno],
   ["GET", /^\/caderno\/(\d+)\/editar$/, verEditar],
@@ -353,10 +424,12 @@ async function atender(req, res) {
   const metodo = req.method === "HEAD" ? "GET" : req.method;
 
   // O modo local não tem login, então só atende quem chama pela própria
-  // máquina. Em 2026-11-12 o npm run local ocupou a porta de produção, e o
+  // máquina, ou pelo endereço de BASE_URL (o da tailnet, pra testar de outro
+  // aparelho). Em 2026-11-12 o npm run local ocupou a porta de produção, e o
   // túnel do Cloudflare, que aponta pra localhost, o publicou em
   // notebook.mhdn.com.br. O túnel manda o Host público, e aqui ele é recusado.
-  if (CONFIG.local && !/^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(req.headers.host ?? "")) {
+  const host = req.headers.host ?? "";
+  if (CONFIG.local && !/^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(host) && host !== HOST_LOCAL) {
     res.writeHead(421, { "Content-Type": "text/plain; charset=utf-8" });
     return res.end("modo local: só atende localhost\n");
   }
@@ -392,12 +465,15 @@ async function atender(req, res) {
 
   const sessao = sessaoAtual(req);
   if (!sessao) {
+    // A API responde 401 em JSON: quem chama é o editor, não uma navegação.
+    if (caminho.startsWith("/api/")) return json(res, 401, { erro: "Sua sessão acabou. Recarregue a página para entrar de novo." });
     if (metodo !== "GET") return responder(res, 401, renderErro("Sua sessão acabou.", "Entre de novo e repita a ação."));
     return redirecionar(res, `/entrar?volta=${encodeURIComponent(caminho)}`);
   }
   // Contra CSRF: toda ação tem de vir de uma página do próprio notebook. Além
   // do SameSite=Lax do cookie, que já barra o POST vindo de outro site.
   if (req.method === "POST" && req.headers.origin !== new URL(CONFIG.base).origin) {
+    if (caminho.startsWith("/api/")) return json(res, 403, { erro: "Pedido recusado: origem diferente do notebook." });
     return responder(res, 403, renderErro("Pedido recusado.", "Abra o notebook e repita a ação por ele.", sessao));
   }
   return rota(req, res, { sessao, params, url });
@@ -419,5 +495,7 @@ createServer(async (req, res) => {
     // Só mensagem escrita pra pessoa (erro.publico) chega à tela; o resto é genérico.
     if (!res.headersSent) responder(res, erro.status ?? 500, renderErro(erro.publico ? "Não deu para gravar." : "Algo deu errado.", erro.publico ?? "Tente de novo em instantes."));
   }
-// No modo local, também só a interface de loopback.
-}).listen(CONFIG.porta, CONFIG.local ? "127.0.0.1" : undefined, () => console.log(`notebook ouvindo na porta ${CONFIG.porta}${CONFIG.local ? " (modo local, sem login)" : ""}`));
+// No modo local, só loopback ou o IP da tailnet (ver CONFIG.escuta).
+}).listen(CONFIG.porta, CONFIG.local ? CONFIG.escuta : undefined, () =>
+  console.log(`notebook ouvindo em ${CONFIG.local ? `${CONFIG.escuta}:` : "porta "}${CONFIG.porta}${CONFIG.local ? " (modo local, sem login)" : ""}`),
+);

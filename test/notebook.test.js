@@ -365,3 +365,66 @@ test("conclusão: banco de antes ganha a coluna sem perder nada", async () => {
   assert.ok(banco.alternarConclusao(db, "ana", "c", 1));
   assert.ok(banco.abrirBanco(caminho), "abrir de novo não tenta criar a coluna outra vez");
 });
+
+// --- API JSON do editor (#9) -------------------------------------------------
+
+test("api: as operações do editor devolvem a árvore nova", async () => {
+  const { operar } = await import("../src/api.js");
+  const db = banco.abrirBanco(":memory:");
+  const { id } = banco.criarCaderno(db, "ana", "CST");
+  let r = operar(db, "ana", id, { op: "acrescentar", tipo: "d", nome: "PG" });
+  const d = r.caderno.disciplinas[0];
+  r = operar(db, "ana", id, { op: "acrescentar", tipo: "s", pai: d.id, nome: "PGUN1", modelo: "mba" });
+  const s = r.caderno.disciplinas[0].sessoes[0];
+  assert.deepEqual(s.materiais.map((m) => m.nome), MODELOS.mba);
+  assert.equal(r.caderno.modelos.cst, MODELOS.cst.length);
+
+  r = operar(db, "ana", id, { op: "renomear", tipo: "s", id: s.id, nome: "PGUN1 - Unidade 1" });
+  assert.equal(r.caderno.disciplinas[0].sessoes[0].nome, "PGUN1 - Unidade 1");
+  r = operar(db, "ana", id, { op: "renomear", tipo: "c", nome: "CST 2026" });
+  assert.equal(r.caderno.nome, "CST 2026");
+
+  const [m0, , , m3] = s.materiais;
+  r = operar(db, "ana", id, { op: "mover", tipo: "m", id: m3.id, indice: 0 });
+  assert.deepEqual(r.caderno.disciplinas[0].sessoes[0].materiais.map((m) => m.nome), ["Quiz", "Gerar esqueleto", "Vídeo", "Ebook (só se ficou lacuna)"]);
+  r = operar(db, "ana", id, { op: "mover", tipo: "m", id: m0.id, indice: 99 });
+  assert.equal(r.caderno.disciplinas[0].sessoes[0].materiais.at(-1).id, m0.id);
+
+  r = operar(db, "ana", id, { op: "marcar", id: m3.id });
+  assert.equal(r.caderno.disciplinas[0].sessoes[0].feitosReais, 1);
+  r = operar(db, "ana", id, { op: "concluir", tipo: "s", id: s.id });
+  assert.equal(r.caderno.disciplinas[0].sessoes[0].manual, true);
+
+  r = operar(db, "ana", id, { op: "excluir", tipo: "s", id: s.id });
+  assert.equal(r.confirmar.materiais, 4);
+  assert.equal(r.caderno.disciplinas[0].sessoes.length, 1, "pedir confirmação não apaga");
+  r = operar(db, "ana", id, { op: "excluir", tipo: "s", id: s.id, confirmado: true });
+  assert.equal(r.caderno.disciplinas[0].sessoes.length, 0);
+
+  r = operar(db, "ana", id, { op: "acrescentar", tipo: "d", nome: "pg" });
+  assert.equal(r.avisos.length, 1, "nome repetido vira aviso");
+  assert.deepEqual(operar(db, "ana", id, { op: "excluir", tipo: "c", confirmado: true }), { excluido: true });
+});
+
+test("api: entrada inválida é 400, e nada atravessa contas ou cadernos", async () => {
+  const { operar } = await import("../src/api.js");
+  const db = banco.abrirBanco(":memory:");
+  const [a, b] = banco.importar(db, "ana", lerMarkdown("# A\n## D\n### S\n- M\n# B\n## D\n### S\n- M\n").cadernos).cadernos;
+  const x = banco.importar(db, "bia", lerMarkdown("# X\n## D\n### S\n- M\n").cadernos).cadernos[0];
+  const mb = banco.caderno(db, "ana", b).disciplinas[0].sessoes[0].materiais[0];
+  const mx = banco.caderno(db, "bia", x).disciplinas[0].sessoes[0].materiais[0];
+
+  for (const corpo of [null, [], "x", { op: "apagar-tudo" }, { op: "renomear", tipo: "__proto__", id: 1, nome: "x" }, { op: "renomear", tipo: "m", id: "1", nome: "x" }, { op: "renomear", tipo: "m", id: 1, nome: 5 }, { op: "mover", tipo: "m", id: 1, indice: 1.5 }, { op: "acrescentar", tipo: "c", nome: "x" }, { op: "concluir", tipo: "m", id: 1 }]) {
+    assert.throws(() => operar(db, "ana", a, corpo), (e) => e.status === 400, JSON.stringify(corpo));
+  }
+  assert.equal(operar(db, "bia", a, { op: "renomear", tipo: "c", nome: "x" }), null, "caderno de outra pessoa");
+  // Pelo caderno A: material do B e da Bia não mudam.
+  for (const id of [mb.id, mx.id]) {
+    operar(db, "ana", a, { op: "renomear", tipo: "m", id, nome: "invadido" });
+    operar(db, "ana", a, { op: "marcar", id });
+    operar(db, "ana", a, { op: "mover", tipo: "m", id, indice: 0 });
+    operar(db, "ana", a, { op: "excluir", tipo: "m", id, confirmado: true });
+  }
+  assert.deepEqual(banco.caderno(db, "ana", b).disciplinas[0].sessoes[0].materiais.map((m) => [m.nome, m.feito]), [["M", false]]);
+  assert.deepEqual(banco.caderno(db, "bia", x).disciplinas[0].sessoes[0].materiais.map((m) => [m.nome, m.feito]), [["M", false]]);
+});
