@@ -8,10 +8,10 @@ import { dirname } from "node:path";
 
 import { semPrototipo, limparTexto } from "./texto.js";
 
-// Teto de linhas por pessoa, somados os quatro níveis. Um caderno do CST tem
+// Teto de linhas por pessoa, somados os quatro níveis. Um caderno grande tem
 // perto de 80; o teto existe pra um envio repetido não encher o disco.
 export const LIMITE_ITENS = 20000;
-// Teto de itens num arquivo .md só. Um ano de CST e MBA juntos fica perto de
+// Teto de itens num arquivo .md só. Um ano inteiro de estudo fica perto de
 // mil; o teto limita o tempo que uma importação segura o servidor.
 export const LIMITE_IMPORTACAO = 5000;
 

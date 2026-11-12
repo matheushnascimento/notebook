@@ -105,7 +105,7 @@ export function renderInicio({ usuario, cadernos, erro = null, nomeNovo = "" }) 
   const novo = `
 <form class="novo-caderno" method="post" action="/caderno/novo">
   <label for="novo-caderno">Novo caderno</label>
-  <div class="linha-campo"><input id="novo-caderno" name="nome" required maxlength="200" placeholder="CST, MBA FM2S..." value="${esc(nomeNovo)}"><button type="submit">Criar</button></div>
+  <div class="linha-campo"><input id="novo-caderno" name="nome" required maxlength="200" placeholder="Caderno A, Caderno B..." value="${esc(nomeNovo)}"><button type="submit">Criar</button></div>
   ${erro ? `<p class="aviso" role="alert">${esc(erro)}</p>` : ""}
 </form>`;
   const corpo = `
@@ -324,20 +324,20 @@ ${listaAvisos}
     <label for="arquivo">Arquivo .md</label>
     <input id="arquivo" name="arquivo" type="file" accept=".md,.markdown,.txt,text/markdown,text/plain">
     <label for="texto">Ou cole o conteúdo</label>
-    <textarea id="texto" name="texto" rows="14" spellcheck="false" placeholder="# CST&#10;## Prática em gestão&#10;modelo: cst&#10;### PGUN1 - Unidade 1">${esc(texto)}</textarea>
+    <textarea id="texto" name="texto" rows="14" spellcheck="false" placeholder="# Caderno A&#10;## Disciplina 1&#10;modelo: unidades&#10;### Sessão 1.1 - Unidade 1">${esc(texto)}</textarea>
     <p><button type="submit">Importar</button></p>
   </form>
   <p class="detalhe">A importação mescla com o que já existe: o que tem o mesmo nome é reaproveitado, nada é apagado e nenhum material concluído volta a ficar em aberto.</p>
 </section>
 <section>
   <h2>O formato</h2>
-<pre><code># CST                    ← caderno
-## Prática em gestão     ← disciplina
-modelo: cst              ← opcional
-### PGUN1 - Unidade 1    ← sessão
+<pre><code># Caderno A                    ← caderno
+## Disciplina 1     ← disciplina
+modelo: unidades              ← opcional
+### Sessão 1.1 - Unidade 1    ← sessão
 - [ ] Vídeo              ← material
 - [x] Ebook 1/2          ← material concluído
-### PGUN2 - Unidade 2
+### Sessão 1.2 - Unidade 2
 concluído: sim           ← sessão concluída, mesmo com
 - [ ] Aula com docente      material em aberto</code></pre>
   <p>Uma sessão sem materiais na lista recebe os do modelo indicado na sessão, na disciplina ou no caderno, nessa ordem:</p>

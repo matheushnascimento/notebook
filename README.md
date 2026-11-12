@@ -1,12 +1,12 @@
 # notebook mhdn
 
-O acompanhamento do modelo de estudo (CST e MBA FM2S), em
+O acompanhamento de estudos em cadernos, em
 **`https://notebook.mhdn.com.br`**, atrás da Conta mhdn.
 
 ```
 Cadernos → disciplinas → sessões → materiais
-CST        Prática em gestão  PGUN1     Vídeo, Ebook, Cartões...
-MBA FM2S   BPM                BPM01     Vídeo, Quiz...
+Caderno A        Disciplina 1  Sessão 1.1     Vídeo, Ebook, Cartões...
+Caderno B   Disciplina 2                Sessão 2.1     Vídeo, Quiz...
 ```
 
 Cada nível mostra o contador de progresso (feitos/total e %) e a barra. Os
@@ -28,7 +28,7 @@ para o Ebook que só entra se ficou lacuna, ou para a aula que não aconteceu.
 listas aninhadas: disciplinas, dentro delas as sessões, e dentro delas os
 materiais. Em cada item dá para renomear no próprio campo, subir (↑), descer (↓)
 e excluir (×). No fim de cada lista há um campo para acrescentar. Uma sessão nova
-pode vir vazia ou já com os materiais do modelo `cst` ou `mba`.
+pode vir vazia ou já com os materiais do modelo `unidades` ou `submódulos`.
 
 O editor é em **React** e não recarrega a página:
 - Renomear salva ao sair do campo ou com Enter, e Esc desfaz.
@@ -49,22 +49,22 @@ O .md continua servindo para montar muita coisa de uma vez e como backup.
 ## O formato .md
 
 ```markdown
-# CST                    ← caderno
-## Prática em gestão     ← disciplina
-modelo: cst              ← opcional
-### PGUN1 - Unidade 1    ← sessão
+# Caderno A                    ← caderno
+## Disciplina 1     ← disciplina
+modelo: unidades              ← opcional
+### Sessão 1.1 - Unidade 1    ← sessão
 - [ ] Vídeo              ← material
 - [x] Ebook 1/2          ← material concluído
-### PGUN2 - Unidade 2
+### Sessão 1.2 - Unidade 2
 concluído: sim           ← sessão concluída a mão
 ```
 
 - Uma sessão **sem itens de lista** recebe os materiais do `modelo:` mais próximo
   (sessão, disciplina ou caderno). Os modelos seguem o método de estudo:
-  - `cst`: Gerar esqueleto, Vídeo, Aula com docente, Ebook, Perguntas de
+  - `unidades`: Gerar esqueleto, Vídeo, Aula com docente, Ebook, Perguntas de
     recuperação, Cartões didáticos, Teste sem consulta (meta 70%), Revisão de
     memória, Atividade no AVA.
-  - `mba`: Gerar esqueleto, Vídeo, Ebook (só se ficou lacuna), Quiz.
+  - `submódulos`: Gerar esqueleto, Vídeo, Ebook (só se ficou lacuna), Quiz.
 - `concluído: sim` logo abaixo de um título conclui aquele nível. O .md baixado
   traz essa linha nas conclusões feitas a mão, e reimportar sem ela não reabre.
 - Os prefixos `Caderno:`, `Disciplina:` e `Sessão:` nos títulos são aceitos e
@@ -75,7 +75,7 @@ concluído: sim           ← sessão concluída a mão
 - **Baixar como .md** devolve o caderno com o progresso em `[x]`: serve de
   backup e de ponto de partida pra editar e reimportar.
 
-O exemplo completo está em [`exemplos/cst-mba.md`](exemplos/cst-mba.md) (e em
+O exemplo completo está em [`exemplos/exemplo.md`](exemplos/exemplo.md) (e em
 `/modelo.md` no próprio app).
 
 ## Como é feito

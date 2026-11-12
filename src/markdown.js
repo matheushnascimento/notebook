@@ -1,9 +1,9 @@
 // Leitura e escrita do formato .md do notebook.
 //
-//   # CST                         caderno
-//   ## Prática em gestão          disciplina
-//   modelo: cst                   (opcional) materiais padrão das sessões vazias
-//   ### PGUN1 - Unidade 1         sessão
+//   # Caderno A                         caderno
+//   ## Disciplina 1          disciplina
+//   modelo: unidades                   (opcional) materiais padrão das sessões vazias
+//   ### Sessão 1.1 - Unidade 1         sessão
 //   - [ ] Vídeo                   material
 //   - [x] Ebook 1/2               material já concluído
 //
@@ -17,9 +17,9 @@
 
 import { semPrototipo, limparTexto } from "./texto.js";
 
-// Os passos do modelo de estudo (CST por unidade, MBA FM2S por aula).
+// Dois modelos de passos: "unidades" (nove etapas, por unidade) e "submódulos" (quatro, por aula).
 export const MODELOS = semPrototipo({
-  cst: [
+  unidades: [
     "Gerar esqueleto",
     "Vídeo",
     "Aula com docente",
@@ -30,7 +30,7 @@ export const MODELOS = semPrototipo({
     "Revisão de memória",
     "Atividade no AVA",
   ],
-  mba: ["Gerar esqueleto", "Vídeo", "Ebook (só se ficou lacuna)", "Quiz"],
+  submódulos: ["Gerar esqueleto", "Vídeo", "Ebook (só se ficou lacuna)", "Quiz"],
 });
 
 export const LIMITE_BYTES = 512 * 1024;
