@@ -8,10 +8,20 @@
   },
   "scripts": {
     "start": "node src/server.js",
-    "local": "AUTENTICACAO=local BANCO=./dados/notebook.db BASE_URL=http://localhost:19400 PORTA=19400 node src/server.js",
-    "test": "node --test"
+    "build": "vite build",
+    "local": "vite build && AUTENTICACAO=local BANCO=./dados/notebook.db BASE_URL=http://localhost:19400 PORTA=19400 node src/server.js",
+    "test": "node --test test/*.test.js"
   },
   "dependencies": {
     "openid-client": "6.8.8"
+  },
+  "devDependencies": {
+    "@dnd-kit/core": "6.3.1",
+    "@dnd-kit/sortable": "10.0.0",
+    "@dnd-kit/utilities": "3.2.2",
+    "@vitejs/plugin-react": "6.1.2",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "vite": "8.3.5"
   }
 }

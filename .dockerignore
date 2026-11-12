@@ -4,3 +4,4 @@ test
 docs
 .env
 .git
+dist

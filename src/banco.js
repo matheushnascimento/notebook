@@ -502,3 +502,25 @@ export function aplicarEdicao(db, usuario, cadernoId, campos, acao, modelos) {
   }
   return resultado;
 }
+
+// Move um item para a posição `indice` entre os irmãos (0 é o primeiro), pro
+// arrastar e soltar do editor. Só dentro da mesma lista: mudar de pai fica pra
+// depois. Índice fora da lista vai pro começo ou pro fim.
+export function moverPara(db, usuario, cadernoId, tipo, id, indice) {
+  if (!nivel(tipo) || !Number.isSafeInteger(indice)) return false;
+  if (cadernoDoItem(db, usuario, tipo, id) !== cadernoId) return false;
+  const { tabela, pai } = NIVEIS[tipo];
+  db.exec("BEGIN");
+  try {
+    const { pai: idPai } = paiDe(db, tipo, id);
+    const irmaos = consulta(db, `SELECT id FROM ${tabela} WHERE ${pai} = ? ORDER BY ordem, id`).all(idPai).map((l) => l.id).filter((x) => x !== id);
+    irmaos.splice(Math.max(0, Math.min(indice, irmaos.length)), 0, id);
+    const ordenar = consulta(db, `UPDATE ${tabela} SET ordem = ? WHERE id = ?`);
+    irmaos.forEach((irmao, ordem) => ordenar.run(ordem, irmao));
+    db.exec("COMMIT");
+  } catch (erro) {
+    db.exec("ROLLBACK");
+    throw erro;
+  }
+  return true;
+}
