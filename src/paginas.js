@@ -10,7 +10,14 @@ import { MODELOS } from "./markdown.js";
 const esc = (valor) =>
   String(valor ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 
-const pct = (no) => (no.total ? Math.round((no.feitos / no.total) * 100) : 0);
+const pct = (no) => (no.concluido ? 100 : no.total ? Math.round((no.feitos / no.total) * 100) : 0);
+
+// Gênero de cada nível, pros rótulos: "caderno concluído", "sessão concluída".
+const NIVEL = {
+  c: { nome: "caderno", concluido: "concluído" },
+  d: { nome: "disciplina", concluido: "concluída" },
+  s: { nome: "sessão", concluido: "concluída" },
+};
 
 const DATA = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", timeZone: "America/Sao_Paulo" });
 
@@ -45,11 +52,35 @@ ${corpo}
 }
 
 function barra(no, rotulo) {
-  return `<progress value="${no.feitos}" max="${no.total || 1}" aria-label="${esc(rotulo)}">${pct(no)}%</progress>`;
+  // Concluído, mesmo sem materiais, enche a barra.
+  const max = no.total || 1;
+  return `<progress value="${no.concluido ? max : no.feitos}" max="${max}" aria-label="${esc(rotulo)}">${pct(no)}%</progress>`;
 }
 
-function contador(no) {
-  return `<span class="contador">${no.feitos}/${no.total} &middot; ${pct(no)}%</span>`;
+// O contador mostra os materiais marcados de fato. Concluído a mão com material
+// em aberto aparece como "7/9 · concluída", e a barra cheia.
+function contador(no, tipo) {
+  const estado = no.concluido && tipo ? NIVEL[tipo].concluido : `${pct(no)}%`;
+  return `<span class="contador">${no.feitosReais ?? no.feitos}/${no.total} &middot; ${estado}</span>`;
+}
+
+// Concluir ou reabrir um nível. Concluído sozinho, com todos os filhos
+// concluídos, não tem o que reabrir: o botão só aparece no que depende de mão.
+function conclusao(tipo, no) {
+  const { nome, concluido } = NIVEL[tipo];
+  if (no.manual) {
+    const quando = no.concluidoEm ? ` em ${esc(DATA.format(new Date(no.concluidoEm)))}` : "";
+    const faltam = no.total - no.feitosReais;
+    const aberto = faltam > 0 ? `, com ${faltam === 1 ? "1 material" : `${faltam} materiais`} em aberto` : "";
+    return `<form method="post" action="/concluir/${tipo}/${no.id}" class="conclusao">
+  <span class="detalhe">${nome[0].toUpperCase()}${nome.slice(1)} ${concluido}${quando}${aberto}.</span>
+  <button type="submit" class="secundario">Reabrir ${nome}</button>
+</form>`;
+  }
+  if (no.concluido) return "";
+  return `<form method="post" action="/concluir/${tipo}/${no.id}" class="conclusao">
+  <button type="submit" class="secundario">Concluir ${nome}</button>
+</form>`;
 }
 
 // --- Início ------------------------------------------------------------------
@@ -58,10 +89,10 @@ export function renderInicio({ usuario, cadernos, erro = null, nomeNovo = "" }) 
   const cartoes = cadernos.map(
     (c) => `
 <a class="cartao" href="/caderno/${c.id}">
-  <div class="linha-titulo"><h2>${esc(c.nome)}</h2>${contador(c)}</div>
+  <div class="linha-titulo"><h2>${esc(c.nome)}</h2>${contador(c, "c")}</div>
   ${barra(c, `Progresso de ${c.nome}`)}
   <span class="detalhe">${c.disciplinas.length} ${c.disciplinas.length === 1 ? "disciplina" : "disciplinas"} &middot; ${c.sessoesConcluidas} de ${c.sessoesTotal} sessões concluídas</span>
-  ${c.proximo ? `<span class="detalhe">A seguir: ${esc(c.proximo.sessao.nome)}, ${esc(c.proximo.material.nome)}</span>` : c.total ? `<span class="selo">concluído</span>` : ""}
+  ${c.concluido ? `<span class="selo">concluído</span>` : c.proximo ? `<span class="detalhe">A seguir: ${esc(c.proximo.sessao.nome)}, ${esc(c.proximo.material.nome)}</span>` : ""}
 </a>`,
   );
   const vazio = `
@@ -96,15 +127,15 @@ export function renderCaderno({ usuario, caderno: c, aviso }) {
 
   const disciplinas = c.disciplinas.map(
     (d) => `
-<section>
-  <div class="linha-titulo"><h2>${esc(d.nome)}</h2>${contador(d)}</div>
+<section id="d-${d.id}">
+  <div class="linha-titulo"><h2>${esc(d.nome)}</h2>${contador(d, "d")}</div>
   ${barra(d, `Progresso de ${d.nome}`)}
-  <span class="detalhe">${d.sessoesConcluidas} de ${d.sessoes.length} sessões concluídas</span>
+  <div class="linha-titulo"><span class="detalhe">${d.sessoesConcluidas} de ${d.sessoes.length} sessões concluídas</span>${conclusao("d", d)}</div>
   <ul class="sessoes">
     ${d.sessoes
       .map(
         (s) => `<li><a href="/sessao/${s.id}" class="${s.concluido ? "feito" : ""}">
-      <span class="linha-titulo"><span class="nome">${s.concluido ? '<span class="caixa marcada" aria-hidden="true"></span>' : ""}${esc(s.nome)}</span>${contador(s)}</span>
+      <span class="linha-titulo"><span class="nome">${s.concluido ? '<span class="caixa marcada" aria-hidden="true"></span>' : ""}${esc(s.nome)}</span>${contador(s, "s")}</span>
       ${barra(s, `Progresso de ${s.nome}`)}
     </a></li>`,
       )
@@ -115,9 +146,9 @@ export function renderCaderno({ usuario, caderno: c, aviso }) {
 
   const corpo = `
 ${aviso ? `<p class="aviso-ok" role="status">${esc(aviso)}</p>` : ""}
-<div class="linha-titulo"><h1>${esc(c.nome)}</h1>${contador(c)}</div>
+<div class="linha-titulo"><h1>${esc(c.nome)}</h1>${contador(c, "c")}</div>
 ${barra(c, `Progresso de ${c.nome}`)}
-<div class="linha-titulo"><p class="detalhe">${c.sessoesConcluidas} de ${c.sessoesTotal} sessões concluídas</p><a class="botao secundario" href="/caderno/${c.id}/editar">Editar</a></div>
+<div class="linha-titulo"><p class="detalhe">${c.sessoesConcluidas} de ${c.sessoesTotal} sessões concluídas</p><span class="em-lote">${conclusao("c", c)}<a class="botao secundario" href="/caderno/${c.id}/editar">Editar</a></span></div>
 ${continuar}
 ${disciplinas.join("") || `<section><p>Este caderno ainda não tem disciplinas.</p><p><a class="botao" href="/caderno/${c.id}/editar">Montar o caderno</a></p></section>`}
 <section class="acoes">
@@ -154,8 +185,9 @@ export function renderSessao({ usuario, caderno: c, sessao: s, anterior, seguint
 
   const corpo = `
 <span class="rotulo">${esc(s.disciplina)}</span>
-<div class="linha-titulo"><h1>${esc(s.nome)}</h1>${contador(s)}</div>
+<div class="linha-titulo"><h1>${esc(s.nome)}</h1>${contador(s, "s")}</div>
 ${barra(s, `Progresso de ${s.nome}`)}
+${conclusao("s", s) || `<p class="detalhe">Sessão concluída: todos os materiais estão marcados.</p>`}
 <section>
   ${materiais.length ? `<ul class="materiais">${materiais.join("")}</ul>` : "<p>Esta sessão ainda não tem materiais.</p>"}
   ${
@@ -211,7 +243,7 @@ export function renderEditar({ usuario, caderno: c, avisos = [], confirmar = nul
     ${d.sessoes
       .map(
         (s, j) => `<li id="s-${s.id}" class="nivel-s">
-      ${linha("s", s.id, s.nome, `Nome da sessão, em ${d.nome}`, posicao(d.sessoes, j), `<span class="contador">${s.feitos}/${s.total}</span>`)}
+      ${linha("s", s.id, s.nome, `Nome da sessão, em ${d.nome}`, posicao(d.sessoes, j), `<span class="contador">${s.feitosReais}/${s.total}</span>`)}
       <ol class="filhos">
         ${s.materiais
           .map(
@@ -297,7 +329,10 @@ ${listaAvisos}
 modelo: cst              ← opcional
 ### PGUN1 - Unidade 1    ← sessão
 - [ ] Vídeo              ← material
-- [x] Ebook 1/2          ← material concluído</code></pre>
+- [x] Ebook 1/2          ← material concluído
+### PGUN2 - Unidade 2
+concluído: sim           ← sessão concluída, mesmo com
+- [ ] Aula com docente      material em aberto</code></pre>
   <p>Uma sessão sem materiais na lista recebe os do modelo indicado na sessão, na disciplina ou no caderno, nessa ordem:</p>
   <ul>${modelos}</ul>
   <p><a href="/modelo.md">Baixar o exemplo completo</a></p>
@@ -438,6 +473,8 @@ select { font: 400 15px/22px var(--texto); color: var(--tinta); background: var(
   .filhos { margin-left: 4px; padding-left: 8px; }
   button.icone { width: 30px; }
 }
+.conclusao { display: inline-flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 4px 0 8px; }
+.conclusao .detalhe { display: inline; }
 footer { text-align: center; color: var(--grafite); font-size: 15px; line-height: 23px; padding: 24px 16px; }
 `;
 

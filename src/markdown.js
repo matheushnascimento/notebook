@@ -7,6 +7,9 @@
 //   - [ ] Vídeo                   material
 //   - [x] Ebook 1/2               material já concluído
 //
+// "concluído: sim" logo abaixo de um título conclui aquele nível (caderno,
+// disciplina ou sessão) mesmo com materiais em aberto.
+//
 // "modelo:" vale para o nível em que aparece (caderno, disciplina ou sessão) e
 // para tudo que estiver abaixo dele. Uma sessão sem nenhum item de lista recebe
 // os materiais do modelo mais próximo. Linhas que não são título, lista ou
@@ -75,7 +78,7 @@ export function lerMarkdown(texto) {
     let m;
 
     if ((m = t.match(/^#\s+(.+)$/))) {
-      caderno = { nome: nome(m[1]), modelo: null, disciplinas: [] };
+      caderno = { nome: nome(m[1]), modelo: null, concluido: false, disciplinas: [] };
       cadernos.push(caderno);
       disciplina = sessao = null;
     } else if ((m = t.match(/^##\s+(.+)$/))) {
@@ -83,7 +86,7 @@ export function lerMarkdown(texto) {
         avisos.push(`Linha ${n}: disciplina "${nome(m[1])}" fora de um caderno (falta um "# Caderno" antes).`);
         continue;
       }
-      disciplina = { nome: nome(m[1]), modelo: null, sessoes: [] };
+      disciplina = { nome: nome(m[1]), modelo: null, concluido: false, sessoes: [] };
       caderno.disciplinas.push(disciplina);
       sessao = null;
     } else if ((m = t.match(/^###\s+(.+)$/))) {
@@ -91,8 +94,13 @@ export function lerMarkdown(texto) {
         avisos.push(`Linha ${n}: sessão "${nome(m[1])}" fora de uma disciplina (falta um "## Disciplina" antes).`);
         continue;
       }
-      sessao = { nome: nome(m[1]), modelo: null, materiais: [] };
+      sessao = { nome: nome(m[1]), modelo: null, concluido: false, materiais: [] };
       disciplina.sessoes.push(sessao);
+    } else if ((m = t.match(/^conclu[ií]d[oa]\s*:\s*(\S+)$/i))) {
+      const alvo = sessao ?? disciplina ?? caderno;
+      if (!alvo) continue;
+      if (/^(sim|s|x)$/i.test(m[1])) alvo.concluido = true;
+      else if (!/^(n[aã]o|n)$/i.test(m[1])) avisos.push(`Linha ${n}: use "concluído: sim" ou "concluído: não".`);
     } else if ((m = t.match(/^modelo\s*:\s*(\S+)/i))) {
       const chave = m[1].toLowerCase();
       if (!Object.hasOwn(MODELOS, chave)) {
@@ -127,11 +135,14 @@ export function lerMarkdown(texto) {
 }
 
 export function escreverMarkdown(caderno) {
-  const partes = [`# ${caderno.nome}`];
+  // Só a conclusão feita a mão vai pro arquivo: a automática se refaz sozinha
+  // a partir dos materiais.
+  const concluido = (no) => (no.manual ? ["concluído: sim"] : []);
+  const partes = [`# ${caderno.nome}`, ...concluido(caderno)];
   for (const d of caderno.disciplinas) {
-    partes.push("", `## ${d.nome}`);
+    partes.push("", `## ${d.nome}`, ...concluido(d));
     for (const s of d.sessoes) {
-      partes.push("", `### ${s.nome}`, "");
+      partes.push("", `### ${s.nome}`, ...concluido(s), "");
       for (const m of s.materiais) partes.push(`- [${m.feito ? "x" : " "}] ${m.nome}`);
     }
   }

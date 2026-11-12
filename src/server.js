@@ -280,6 +280,13 @@ async function editar(req, res, { sessao, params }) {
   redirecionar(res, `/caderno/${id}/editar${r.foco ? `#${r.foco}` : ""}`);
 }
 
+function concluir(req, res, { sessao, params }) {
+  const r = banco.alternarConclusao(db, sessao.sub, params[0], Number(params[1]));
+  if (!r) return naoEncontrado(res, sessao);
+  const destino = { s: `/sessao/${r.id}`, d: `/caderno/${r.cadernoId}#d-${r.id}`, c: `/caderno/${r.cadernoId}` }[r.tipo];
+  redirecionar(res, destino);
+}
+
 function formImportar(req, res, { sessao }) {
   responder(res, 200, renderImportar({ usuario: sessao }));
 }
@@ -334,6 +341,7 @@ const ROTAS = [
   ["GET", /^\/sessao\/(\d+)$/, verSessao],
   ["POST", /^\/sessao\/(\d+)\/marcar$/, marcarSessao],
   ["POST", /^\/material\/(\d+)\/alternar$/, alternar],
+  ["POST", /^\/concluir\/([cds])\/(\d+)$/, concluir],
   ["POST", /^\/sair$/, sair],
 ];
 
