@@ -1,0 +1,122 @@
+// Leitura e escrita do formato .md do notebook.
+//
+//   # CST                         caderno
+//   ## Prática em gestão          disciplina
+//   modelo: cst                   (opcional) materiais padrão das sessões vazias
+//   ### PGUN1 - Unidade 1         sessão
+//   - [ ] Vídeo                   material
+//   - [x] Ebook 1/2               material já concluído
+//
+// "modelo:" vale para o nível em que aparece (caderno, disciplina ou sessão) e
+// para tudo que estiver abaixo dele. Uma sessão sem nenhum item de lista recebe
+// os materiais do modelo mais próximo. Linhas que não são título, lista ou
+// modelo são ignoradas, então dá para deixar anotações livres no arquivo.
+
+// Os passos do modelo de estudo (CST por unidade, MBA FM2S por aula).
+export const MODELOS = {
+  cst: [
+    "Gerar esqueleto",
+    "Vídeo",
+    "Aula com docente",
+    "Ebook",
+    "Perguntas de recuperação",
+    "Cartões didáticos",
+    "Teste sem consulta (meta 70%)",
+    "Revisão de memória",
+    "Atividade no AVA",
+  ],
+  mba: ["Gerar esqueleto", "Vídeo", "Ebook (só se ficou lacuna)", "Quiz"],
+};
+
+export const LIMITE_BYTES = 512 * 1024;
+
+const PREFIXOS = /^(caderno|disciplina|sess[aã]o)\s*:\s*/i;
+
+function nome(texto) {
+  return texto.replace(/\s+#+\s*$/, "").replace(PREFIXOS, "").trim().slice(0, 200);
+}
+
+export function lerMarkdown(texto) {
+  const cadernos = [];
+  const avisos = [];
+  let caderno = null;
+  let disciplina = null;
+  let sessao = null;
+
+  const linhas = String(texto).replace(/^﻿/, "").split(/\r?\n/);
+  let i = 0;
+  // Frontmatter YAML no começo do arquivo é pulado.
+  if (linhas[0]?.trim() === "---") {
+    const fim = linhas.findIndex((l, j) => j > 0 && l.trim() === "---");
+    if (fim > 0) i = fim + 1;
+  }
+
+  for (; i < linhas.length; i++) {
+    const t = linhas[i].trim();
+    const n = i + 1;
+    if (!t) continue;
+    let m;
+
+    if ((m = t.match(/^#\s+(.+)$/))) {
+      caderno = { nome: nome(m[1]), modelo: null, disciplinas: [] };
+      cadernos.push(caderno);
+      disciplina = sessao = null;
+    } else if ((m = t.match(/^##\s+(.+)$/))) {
+      if (!caderno) {
+        avisos.push(`Linha ${n}: disciplina "${nome(m[1])}" fora de um caderno (falta um "# Caderno" antes).`);
+        continue;
+      }
+      disciplina = { nome: nome(m[1]), modelo: null, sessoes: [] };
+      caderno.disciplinas.push(disciplina);
+      sessao = null;
+    } else if ((m = t.match(/^###\s+(.+)$/))) {
+      if (!disciplina) {
+        avisos.push(`Linha ${n}: sessão "${nome(m[1])}" fora de uma disciplina (falta um "## Disciplina" antes).`);
+        continue;
+      }
+      sessao = { nome: nome(m[1]), modelo: null, materiais: [] };
+      disciplina.sessoes.push(sessao);
+    } else if ((m = t.match(/^modelo\s*:\s*(\S+)/i))) {
+      const chave = m[1].toLowerCase();
+      if (!MODELOS[chave]) {
+        avisos.push(`Linha ${n}: modelo "${m[1]}" não existe. Use ${Object.keys(MODELOS).join(" ou ")}.`);
+        continue;
+      }
+      const alvo = sessao ?? disciplina ?? caderno;
+      if (alvo) alvo.modelo = chave;
+    } else if ((m = t.match(/^[-*+]\s+(?:\[([ xX])\]\s*)?(.+)$/))) {
+      if (!sessao) {
+        avisos.push(`Linha ${n}: material "${nome(m[2])}" fora de uma sessão (falta um "### Sessão" antes).`);
+        continue;
+      }
+      const material = nome(m[2]);
+      if (material) sessao.materiais.push({ nome: material, feito: m[1]?.toLowerCase() === "x" });
+    }
+  }
+
+  for (const c of cadernos) {
+    for (const d of c.disciplinas) {
+      for (const s of d.sessoes) {
+        const modelo = s.modelo ?? d.modelo ?? c.modelo;
+        if (!s.materiais.length && modelo) s.materiais = MODELOS[modelo].map((nome) => ({ nome, feito: false }));
+        delete s.modelo;
+      }
+      delete d.modelo;
+    }
+    delete c.modelo;
+  }
+  if (!cadernos.length) avisos.push('Nenhum caderno encontrado. O arquivo precisa de pelo menos um título "# Caderno".');
+  return { cadernos, avisos };
+}
+
+export function escreverMarkdown(caderno) {
+  const partes = [`# ${caderno.nome}`];
+  for (const d of caderno.disciplinas) {
+    partes.push("", `## ${d.nome}`);
+    for (const s of d.sessoes) {
+      partes.push("", `### ${s.nome}`, "");
+      for (const m of s.materiais) partes.push(`- [${m.feito ? "x" : " "}] ${m.nome}`);
+    }
+  }
+  return partes.join("\n") + "\n";
+}

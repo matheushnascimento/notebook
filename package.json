@@ -1,0 +1,17 @@
+{
+  "name": "notebook",
+  "private": true,
+  "description": "notebook mhdn, em notebook.mhdn.com.br: acompanhamento do modelo de estudo, atrás da Conta mhdn.",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "local": "AUTENTICACAO=local BANCO=./dados/notebook.db BASE_URL=http://localhost:9400 PORTA=9400 node src/server.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "openid-client": "6.8.8"
+  }
+}

@@ -1,0 +1,28 @@
+# notebook mhdn, em notebook.mhdn.com.br.
+#
+# Stack separada da Conta mhdn (central-contas): reiniciar o notebook não
+# derruba o login, e o contrário também vale.
+
+services:
+  notebook:
+    build: .
+    restart: unless-stopped
+    environment:
+      EMISSOR: ${EMISSOR:-https://conta.mhdn.com.br/application/o/notebook/}
+      CONTA: ${CONTA:-https://conta.mhdn.com.br}
+      CLIENT_ID: notebook
+      BASE_URL: ${BASE_URL:-https://notebook.mhdn.com.br}
+    ports:
+      # Só loopback: quem publica é o Cloudflare Tunnel. 9100 é o painel, 9200 o
+      # portão da central-contas e 9300 o futuro-eu.
+      - "127.0.0.1:${PORTA_NOTEBOOK:-9400}:3000"
+    volumes:
+      # O único lugar onde o container escreve: o SQLite com o progresso.
+      - dados:/dados
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  dados:
