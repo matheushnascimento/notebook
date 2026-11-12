@@ -5,27 +5,27 @@ import { readFileSync } from "node:fs";
 import { lerMarkdown, escreverMarkdown, MODELOS } from "../src/markdown.js";
 import * as banco from "../src/banco.js";
 
-const exemplo = readFileSync(new URL("../exemplos/cst-mba.md", import.meta.url), "utf8");
+const exemplo = readFileSync(new URL("../exemplos/exemplo.md", import.meta.url), "utf8");
 
 test("o exemplo lê sem avisos, com modelos expandidos", () => {
   const { cadernos, avisos } = lerMarkdown(exemplo);
   assert.deepEqual(avisos, []);
-  assert.deepEqual(cadernos.map((c) => c.nome), ["CST", "MBA FM2S"]);
+  assert.deepEqual(cadernos.map((c) => c.nome), ["Caderno A", "Caderno B"]);
   const pg = cadernos[0].disciplinas[0];
-  assert.equal(pg.nome, "Prática em gestão");
+  assert.equal(pg.nome, "Disciplina 1");
   assert.equal(pg.sessoes.length, 4);
-  assert.deepEqual(pg.sessoes[0].materiais.map((m) => m.nome), MODELOS.cst);
+  assert.deepEqual(pg.sessoes[0].materiais.map((m) => m.nome), MODELOS.unidades);
   const ia = cadernos[0].disciplinas[2].sessoes[0];
   assert.equal(ia.materiais.length, 6, "lista própria vence o modelo");
-  assert.deepEqual(cadernos[1].disciplinas[0].sessoes[0].materiais.map((m) => m.nome), MODELOS.mba);
+  assert.deepEqual(cadernos[1].disciplinas[0].sessoes[0].materiais.map((m) => m.nome), MODELOS.submódulos);
 });
 
 test("checkbox, prefixos e frontmatter", () => {
-  const { cadernos, avisos } = lerMarkdown("---\ntitulo: x\n---\n# Caderno: CST\n## Disciplina: PG\n### Sessão: PGUN1\n- [x] Vídeo\n* [ ] Ebook\n- Quiz\n");
+  const { cadernos, avisos } = lerMarkdown("---\ntitulo: x\n---\n# Caderno: Caderno A\n## Disciplina: D1\n### Sessão: Sessão 1.1\n- [x] Vídeo\n* [ ] Ebook\n- Quiz\n");
   assert.deepEqual(avisos, []);
   const s = cadernos[0].disciplinas[0].sessoes[0];
-  assert.equal(cadernos[0].nome, "CST");
-  assert.equal(s.nome, "PGUN1");
+  assert.equal(cadernos[0].nome, "Caderno A");
+  assert.equal(s.nome, "Sessão 1.1");
   assert.deepEqual(s.materiais, [
     { nome: "Vídeo", feito: true },
     { nome: "Ebook", feito: false },
@@ -43,11 +43,11 @@ test("importar mescla sem desfazer progresso, e o .md faz o caminho de volta", (
   const db = banco.abrirBanco(":memory:");
   const r1 = banco.importar(db, "ana", lerMarkdown(exemplo).cadernos);
   assert.equal(r1.cadernos.length, 2);
-  const cst = banco.caderno(db, "ana", r1.cadernos[0]);
-  assert.equal(cst.total, 6 * 9 + 6);
-  assert.equal(cst.proximo.material.nome, "Gerar esqueleto");
+  const caderno = banco.caderno(db, "ana", r1.cadernos[0]);
+  assert.equal(caderno.total, 6 * 9 + 6);
+  assert.equal(caderno.proximo.material.nome, "Gerar esqueleto");
 
-  const primeiro = cst.disciplinas[0].sessoes[0].materiais[0];
+  const primeiro = caderno.disciplinas[0].sessoes[0].materiais[0];
   assert.ok(banco.alternarMaterial(db, "ana", primeiro.id));
 
   // Reimportar o mesmo arquivo, com "[ ]" no material concluído, não cria nada
@@ -67,7 +67,7 @@ test("importar mescla sem desfazer progresso, e o .md faz o caminho de volta", (
   assert.equal(copia.feitos, 1);
 
   // Mesmo nome sem diferenciar maiúsculas: acrescenta ao caderno existente.
-  const r4 = banco.importar(db, "ana", lerMarkdown("# cst\n## prática EM gestão\n### PGUN5\n- Vídeo\n").cadernos);
+  const r4 = banco.importar(db, "ana", lerMarkdown("# caderno a\n## disciplina 1\n### Sessão 1.5\n- Vídeo\n").cadernos);
   assert.equal(r4.cadernos[0], r1.cadernos[0]);
   assert.equal(banco.caderno(db, "ana", r1.cadernos[0]).disciplinas[0].sessoes.length, 5);
 });
@@ -94,20 +94,20 @@ test("ninguém alcança o caderno de outra pessoa", () => {
 
 test("edição: montar um caderno inteiro sem .md", () => {
   const db = banco.abrirBanco(":memory:");
-  const { id } = banco.criarCaderno(db, "ana", "  CST  ");
+  const { id } = banco.criarCaderno(db, "ana", "  Caderno A  ");
   assert.ok(id);
-  assert.match(banco.criarCaderno(db, "ana", "cst").erro, /Já existe/);
+  assert.match(banco.criarCaderno(db, "ana", "caderno a").erro, /Já existe/);
   assert.match(banco.criarCaderno(db, "ana", "   ").erro, /nome/);
 
-  let r = banco.aplicarEdicao(db, "ana", id, [["novo:d", "Prática em gestão"]], "salvar:c:" + id, MODELOS);
+  let r = banco.aplicarEdicao(db, "ana", id, [["novo:d", "Disciplina 1"]], "salvar:c:" + id, MODELOS);
   const d = banco.caderno(db, "ana", id).disciplinas[0];
   assert.equal(r.foco, `d-${d.id}`);
 
-  r = banco.aplicarEdicao(db, "ana", id, [[`novo:s:${d.id}`, "PGUN1"], [`modelo:s:${d.id}`, "cst"]], `salvar:d:${d.id}`, MODELOS);
-  banco.aplicarEdicao(db, "ana", id, [[`novo:s:${d.id}`, "PGUN2"], [`modelo:s:${d.id}`, ""]], `salvar:d:${d.id}`, MODELOS);
+  r = banco.aplicarEdicao(db, "ana", id, [[`novo:s:${d.id}`, "Sessão 1.1"], [`modelo:s:${d.id}`, "unidades"]], `salvar:d:${d.id}`, MODELOS);
+  banco.aplicarEdicao(db, "ana", id, [[`novo:s:${d.id}`, "Sessão 1.2"], [`modelo:s:${d.id}`, ""]], `salvar:d:${d.id}`, MODELOS);
   let c = banco.caderno(db, "ana", id);
   const [s1, s2] = c.disciplinas[0].sessoes;
-  assert.deepEqual(s1.materiais.map((m) => m.nome), MODELOS.cst);
+  assert.deepEqual(s1.materiais.map((m) => m.nome), MODELOS.unidades);
   assert.equal(s2.materiais.length, 0);
 
   banco.aplicarEdicao(db, "ana", id, [[`novo:m:${s2.id}`, "Vídeo"]], `salvar:s:${s2.id}`, MODELOS);
@@ -116,20 +116,20 @@ test("edição: montar um caderno inteiro sem .md", () => {
   // Renomear vários de uma vez e mover, num envio só.
   c = banco.caderno(db, "ana", id);
   const ebook = c.disciplinas[0].sessoes[1].materiais[1];
-  r = banco.aplicarEdicao(db, "ana", id, [[`nome:c:${id}`, "CST 2026"], [`nome:s:${s2.id}`, "PGUN2 - Unidade 2"], [`nome:m:${ebook.id}`, "Ebook 1/2"]], `subir:m:${ebook.id}`, MODELOS);
+  r = banco.aplicarEdicao(db, "ana", id, [[`nome:c:${id}`, "Caderno 2026"], [`nome:s:${s2.id}`, "Sessão 1.2 - Unidade 2"], [`nome:m:${ebook.id}`, "Ebook 1/2"]], `subir:m:${ebook.id}`, MODELOS);
   assert.deepEqual(r.avisos, []);
   c = banco.caderno(db, "ana", id);
-  assert.equal(c.nome, "CST 2026");
-  assert.equal(c.disciplinas[0].sessoes[1].nome, "PGUN2 - Unidade 2");
+  assert.equal(c.nome, "Caderno 2026");
+  assert.equal(c.disciplinas[0].sessoes[1].nome, "Sessão 1.2 - Unidade 2");
   assert.deepEqual(c.disciplinas[0].sessoes[1].materiais.map((m) => m.nome), ["Ebook 1/2", "Vídeo"]);
 
   // Subir o primeiro não faz nada; descer a sessão 1 troca com a 2.
   banco.aplicarEdicao(db, "ana", id, [], `subir:s:${s1.id}`, MODELOS);
   banco.aplicarEdicao(db, "ana", id, [], `descer:s:${s1.id}`, MODELOS);
-  assert.deepEqual(banco.caderno(db, "ana", id).disciplinas[0].sessoes.map((s) => s.nome), ["PGUN2 - Unidade 2", "PGUN1"]);
+  assert.deepEqual(banco.caderno(db, "ana", id).disciplinas[0].sessoes.map((s) => s.nome), ["Sessão 1.2 - Unidade 2", "Sessão 1.1"]);
 
   // Nome repetido vira aviso, sem derrubar o resto do envio.
-  r = banco.aplicarEdicao(db, "ana", id, [[`nome:s:${s1.id}`, "pgun2 - unidade 2"], [`novo:m:${s1.id}`, "Quiz"]], "salvar", MODELOS);
+  r = banco.aplicarEdicao(db, "ana", id, [[`nome:s:${s1.id}`, "sessão 1.2 - unidade 2"], [`novo:m:${s1.id}`, "Quiz"]], "salvar", MODELOS);
   assert.equal(r.avisos.length, 1);
   assert.ok(banco.caderno(db, "ana", id).disciplinas[0].sessoes[1].materiais.some((m) => m.nome === "Quiz"));
 });
@@ -371,18 +371,18 @@ test("conclusão: banco de antes ganha a coluna sem perder nada", async () => {
 test("api: as operações do editor devolvem a árvore nova", async () => {
   const { operar } = await import("../src/api.js");
   const db = banco.abrirBanco(":memory:");
-  const { id } = banco.criarCaderno(db, "ana", "CST");
+  const { id } = banco.criarCaderno(db, "ana", "Caderno A");
   let r = operar(db, "ana", id, { op: "acrescentar", tipo: "d", nome: "PG" });
   const d = r.caderno.disciplinas[0];
-  r = operar(db, "ana", id, { op: "acrescentar", tipo: "s", pai: d.id, nome: "PGUN1", modelo: "mba" });
+  r = operar(db, "ana", id, { op: "acrescentar", tipo: "s", pai: d.id, nome: "Sessão 1.1", modelo: "submódulos" });
   const s = r.caderno.disciplinas[0].sessoes[0];
-  assert.deepEqual(s.materiais.map((m) => m.nome), MODELOS.mba);
-  assert.equal(r.caderno.modelos.cst, MODELOS.cst.length);
+  assert.deepEqual(s.materiais.map((m) => m.nome), MODELOS.submódulos);
+  assert.equal(r.caderno.modelos.unidades, MODELOS.unidades.length);
 
-  r = operar(db, "ana", id, { op: "renomear", tipo: "s", id: s.id, nome: "PGUN1 - Unidade 1" });
-  assert.equal(r.caderno.disciplinas[0].sessoes[0].nome, "PGUN1 - Unidade 1");
-  r = operar(db, "ana", id, { op: "renomear", tipo: "c", nome: "CST 2026" });
-  assert.equal(r.caderno.nome, "CST 2026");
+  r = operar(db, "ana", id, { op: "renomear", tipo: "s", id: s.id, nome: "Sessão 1.1 - Unidade 1" });
+  assert.equal(r.caderno.disciplinas[0].sessoes[0].nome, "Sessão 1.1 - Unidade 1");
+  r = operar(db, "ana", id, { op: "renomear", tipo: "c", nome: "Caderno 2026" });
+  assert.equal(r.caderno.nome, "Caderno 2026");
 
   const [m0, , , m3] = s.materiais;
   r = operar(db, "ana", id, { op: "mover", tipo: "m", id: m3.id, indice: 0 });

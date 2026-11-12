@@ -27,7 +27,7 @@ uma vez, na partida, por nomes escritos no código:
 | --- | --- |
 | `src/fonts/eb-garamond-500.woff2`, `newsreader-400.woff2`, `newsreader-600.woff2` | `/fonts/<nome>.woff2` |
 | `src/marca/logo.svg`, `favicon-livro-simples.svg` | `/marca/<nome>` |
-| `exemplos/cst-mba.md` | `/modelo.md` |
+| `exemplos/exemplo.md` | `/modelo.md` |
 
 Eles ficam num mapa em memória (`ESTATICOS`), sem protótipo. Um pedido só é
 atendido se o caminho for **exatamente** uma das chaves. Não existe `join`, nem
@@ -51,7 +51,7 @@ variável `BANCO`, definida no deploy, e nunca do pedido.
 5. **Cada linha passa por regex ancorados e lineares** (`^#\s+`, `^[-*+]\s+`,
    `^modelo:`). O nome é limpo por `limparTexto()`: corta em 800 caracteres,
    tira os invisíveis, junta espaços, apara e corta em 200.
-6. **`modelo:` só aceita `cst` ou `mba`**, conferido com `Object.hasOwn` num
+6. **`modelo:` só aceita `unidades` ou `submódulos`**, conferido com `Object.hasOwn` num
    objeto sem protótipo. `__proto__` e `constructor` viram aviso.
 7. **Com qualquer aviso, nada é gravado.** A página volta com a lista de linhas
    problemáticas.

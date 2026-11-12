@@ -379,7 +379,7 @@ async function importar(req, res, { sessao }) {
 
 // --- Roteamento --------------------------------------------------------------
 
-const EXEMPLO = readFileSync(new URL("../exemplos/cst-mba.md", import.meta.url));
+const EXEMPLO = readFileSync(new URL("../exemplos/exemplo.md", import.meta.url));
 const ESTATICOS = Object.assign(Object.create(null), {
   // Nome com hash: pode ficar em cache pra sempre, porque CSS novo é outro nome.
   [CAMINHO_ESTILO]: { tipo: "text/css; charset=utf-8", conteudo: ESTILO, imutavel: true },
