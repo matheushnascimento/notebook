@@ -179,3 +179,10 @@ test("edição: nada atravessa para outro caderno ou outra pessoa", () => {
   assert.equal(banco.caderno(db, "ana", b).disciplinas[0].sessoes[0].materiais[0].nome, "M");
   assert.deepEqual(banco.caderno(db, "bia", outro).disciplinas[0].sessoes[0].materiais.map((m) => m.nome), ["M"]);
 });
+
+test("o CSS tem a versão no nome, e as páginas apontam pra ele", async () => {
+  const { CAMINHO_ESTILO, ESTILO, renderErro } = await import("../src/paginas.js");
+  assert.match(CAMINHO_ESTILO, /^\/estilo\.[0-9a-f]{12}\.css$/);
+  assert.ok(renderErro("x", "y").includes(`href="${CAMINHO_ESTILO}"`));
+  assert.ok(ESTILO.includes(".linha-item"));
+});

@@ -18,7 +18,7 @@ import { randomBytes } from "node:crypto";
 
 import * as banco from "./banco.js";
 import { lerMarkdown, escreverMarkdown, LIMITE_BYTES, MODELOS } from "./markdown.js";
-import { renderInicio, renderCaderno, renderSessao, renderEditar, renderImportar, renderErro, ESTILO } from "./paginas.js";
+import { renderInicio, renderCaderno, renderSessao, renderEditar, renderImportar, renderErro, ESTILO, CAMINHO_ESTILO } from "./paginas.js";
 
 const CONFIG = {
   // Endereço de descoberta = emissor (issuer_mode per_provider, ADR-006 da
@@ -307,7 +307,8 @@ async function importar(req, res, { sessao }) {
 
 const EXEMPLO = readFileSync(new URL("../exemplos/cst-mba.md", import.meta.url));
 const ESTATICOS = {
-  "/estilo.css": { tipo: "text/css; charset=utf-8", conteudo: ESTILO },
+  // Nome com hash: pode ficar em cache pra sempre, porque CSS novo é outro nome.
+  [CAMINHO_ESTILO]: { tipo: "text/css; charset=utf-8", conteudo: ESTILO, imutavel: true },
   "/modelo.md": { tipo: "text/markdown; charset=utf-8", conteudo: EXEMPLO, baixar: "modelo-notebook.md" },
 };
 // Fontes e marca: lidas uma vez na partida, com lista fechada de nomes. Nenhuma
@@ -360,7 +361,7 @@ async function atender(req, res) {
   if (estatico) {
     res.writeHead(200, {
       "Content-Type": estatico.tipo,
-      "Cache-Control": "public, max-age=3600",
+      "Cache-Control": estatico.imutavel ? "public, max-age=31536000, immutable" : "public, max-age=3600",
       "X-Content-Type-Options": "nosniff",
       ...(estatico.baixar ? { "Content-Disposition": `attachment; filename="${estatico.baixar}"` } : {}),
     });
