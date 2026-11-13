@@ -97,15 +97,19 @@ function cookie(nome, valor, maxAgeSegundos) {
   return `${nome}=${valor}; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSegundos}`;
 }
 
+// Origem da Conta mhdn: a barra (ADR-021/023) carrega script, estilo e logo dela.
+const ORIGEM_CONTA = new URL(CONFIG.conta).origin;
+
 const CABECALHOS_SEGURANCA = {
   "Content-Security-Policy": [
     "default-src 'none'",
     // Script só do próprio notebook: os arquivos do React, com hash no nome.
     // Nada inline e nada de eval.
-    "script-src 'self'",
-    "style-src 'self'",
+    // A barra da Conta mhdn: script, estilo e logo vêm da origem da conta.
+    `script-src 'self' ${ORIGEM_CONTA}`,
+    `style-src 'self' ${ORIGEM_CONTA}`,
     "connect-src 'self'",
-    "img-src 'self'",
+    `img-src 'self' ${ORIGEM_CONTA}`,
     "font-src 'self'",
     // O Sair passa por /sair, que redireciona pra Conta mhdn encerrar a sessão.
     `form-action 'self' ${CONFIG.conta}`,
@@ -227,7 +231,7 @@ async function callback(req, res) {
   const claims = tokens.claims();
 
   const sessaoId = idAleatorio();
-  sessoes.set(sessaoId, { sub: claims.sub, nome: claims.name ?? claims.preferred_username ?? "", idToken: tokens.id_token, expiraEm: Date.now() + SETE_DIAS });
+  sessoes.set(sessaoId, { sub: claims.sub, nome: claims.name ?? "", idToken: tokens.id_token, expiraEm: Date.now() + SETE_DIAS });
   redirecionar(res, pendente.volta, {
     "Set-Cookie": [limparLogin, cookie(COOKIE_SESSAO, sessaoId, SETE_DIAS / 1000)],
   });
@@ -416,6 +420,15 @@ const ROTAS = [
   ["POST", /^\/sair$/, sair],
 ];
 
+// GET /_mhdn/eu: contrato da barra da Conta mhdn. Quem está logado recebe o
+// nome (só claims.name: preferred_username é o email, e não sai daqui) e o
+// caminho de Sair. Sem sessão, 401, e a barra mostra só o logo e o tema.
+function euDaBarra(req, res) {
+  const sessao = sessaoAtual(req);
+  if (!sessao || !sessao.id) return json(res, 401, { erro: "Sem sessão." });
+  return json(res, 200, { nome: sessao.nome, sair: "/sair", metodo: "POST" });
+}
+
 async function atender(req, res) {
   const url = new URL(req.url, CONFIG.base);
   const caminho = url.pathname;
@@ -448,6 +461,7 @@ async function atender(req, res) {
     });
     return res.end(estatico.conteudo);
   }
+  if (metodo === "GET" && caminho === "/_mhdn/eu") return euDaBarra(req, res);
   if (metodo === "GET" && caminho === "/entrar") return entrar(req, res, { url });
   if (metodo === "GET" && caminho === "/callback") return callback(req, res);
 
