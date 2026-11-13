@@ -22,6 +22,10 @@ const NIVEL = {
 
 const DATA = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", timeZone: "America/Sao_Paulo" });
 
+// A barra da Conta mhdn (ADR-023). Só entra em páginas de sessão real: o modo
+// local não tem login, então não tem o que a barra mostrar.
+const BARRA_CONTA = "https://conta.mhdn.com.br/static/dist/assets/mhdn/barra-v2.js";
+
 function pagina(titulo, corpo, { usuario, migalhas = [] } = {}) {
   const trilha = migalhas.length
     ? `<nav class="migalhas" aria-label="Você está em"><a href="/">Cadernos</a>${migalhas
@@ -37,10 +41,11 @@ function pagina(titulo, corpo, { usuario, migalhas = [] } = {}) {
 <title>${esc(titulo)} · notebook mhdn</title>
 <link rel="icon" href="/marca/favicon-livro-simples.svg">
 <link rel="stylesheet" href="${CAMINHO_ESTILO}">
+${usuario?.id ? `<script src="${BARRA_CONTA}" defer></script>` : ""}
 </head>
 <body>
 <main>
-<header>
+<header data-barra-app>
   <a class="marca" href="/"><img class="logo" src="/marca/logo.svg" alt="mhdn" width="40" height="45"><span>notebook</span></a>
   ${sair}
 </header>
@@ -382,6 +387,12 @@ export const ESTILO = `
 body { margin: 0; background: var(--papel); color: var(--tinta); font: 400 18px/29px var(--texto); }
 main { max-width: 720px; margin: 0 auto; padding: 24px 16px 48px; }
 header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 24px; }
+/* Dentro da barra da Conta mhdn: o cabeçalho cabe nos 48 px, sem fundo, borda
+   nem posição própria. O Sair fica com a barra, então o do cabeçalho some. Sem
+   a barra (o script não carregou), tudo isso não se aplica. */
+mhdn-barra > [data-barra-app] { margin: 0; height: 48px; padding: 0; background: none; border: 0; position: static; }
+mhdn-barra > [data-barra-app] .logo { height: 36px; width: auto; }
+mhdn-barra > [data-barra-app] form { display: none; }
 .marca { display: inline-flex; align-items: center; gap: 12px; text-decoration: none; color: var(--anil); font: 500 26px/32px var(--titulo); }
 .logo { height: 45px; width: auto; }
 h1 { font: 500 30px/36px var(--titulo); color: var(--anil); margin: 0 0 8px; overflow-wrap: anywhere; }
