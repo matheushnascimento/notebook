@@ -6,7 +6,7 @@
 import { createHash } from "node:crypto";
 
 import { MODELOS } from "./markdown.js";
-import { SCRIPTS } from "./app.js";
+import { SCRIPTS } from "./frontend.js";
 
 const esc = (valor) =>
   String(valor ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
