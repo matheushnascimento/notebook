@@ -133,20 +133,21 @@ npm test
 O notebook roda na **Vercel** (projeto `notebook`, região `gru1`), com o
 progresso no **Postgres do Supabase** (região São Paulo). Cada merge na `main`
 publica sozinho, pela integração com o GitHub, e cada PR ganha um deploy de
-teste no endereço da branch.
+teste no endereço da branch. O deploy de teste não tem login: a Conta mhdn só
+aceita retorno em `notebook.mhdn.com.br` (ADR-029 da central-contas). Ele serve
+pra conferir sem login; o login se testa com `npm run local` ou em produção.
 
 1. **Registrar o app na Conta mhdn.** O registro vive na central-contas:
    `infra/blueprints/50-app-notebook.yaml` e ADR-017
    ([central-contas#19](https://github.com/matheushnascimento/central-contas/pull/19)).
-   Os deploys de teste entram por uma regex no mesmo blueprint. Sem ele
-   aplicado em produção, o login falha.
+   Sem ele aplicado em produção, o login falha.
 2. **Na Vercel**, as variáveis, diferentes entre teste e produção:
    - `SEGREDO_SESSAO`: a chave do lacre, 32 bytes em base64url.
    - `DATABASE_URL`: a string do *transaction pooler* do Supabase (porta 6543).
      Sem ela, a função não sobe.
 
-   `BASE_URL` não se define na Vercel: o endereço vem do `VERCEL_BRANCH_URL` nos
-   testes e é `notebook.mhdn.com.br` em produção.
+   `BASE_URL` não se define na Vercel: o endereço é `notebook.mhdn.com.br` em
+   produção (e o `VERCEL_BRANCH_URL` nos testes, que não têm login).
 3. **O esquema e a cópia do progresso.** `node scripts/copiar-para-supabase.js`
    cria as tabelas no Supabase (com RLS ligada e sem acesso pela chave pública)
    e copia o SQLite do container `notebook-notebook-1`, com os mesmos ids,

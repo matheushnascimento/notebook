@@ -48,8 +48,9 @@ export const CONFIG = {
 };
 
 // O endereço público, que vira o redirect_uri. Num preview da Vercel é o
-// endereço fixo da branch, que o blueprint aceita por regex. Por isso BASE_URL
-// não se define na Vercel: ela venceria o endereço da branch.
+// endereço fixo da branch, mas a Conta mhdn não o aceita (ADR-029 da
+// central-contas): o preview só serve pra conferir sem login. BASE_URL não se
+// define na Vercel: ela venceria o endereço de produção.
 function enderecoDoNotebook() {
   if (process.env.BASE_URL) return process.env.BASE_URL;
   if (process.env.VERCEL_ENV === "preview" && process.env.VERCEL_BRANCH_URL) return `https://${process.env.VERCEL_BRANCH_URL}`;
