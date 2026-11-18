@@ -82,7 +82,7 @@ export async function copiar(dados, destino, { substituir = false, supabase = fa
         const lote = linhas.slice(i, i + LOTE).map((l) => Object.fromEntries(nomes.map((n) => [n, l[n] ?? null])));
         await tx.consulta(
           `INSERT INTO ${tabela} (${nomes.join(", ")})
-           SELECT ${nomes.join(", ")} FROM json_to_recordset($1::json) AS v(${tipos})`,
+           SELECT ${nomes.join(", ")} FROM json_to_recordset($1::text::json) AS v(${tipos})`,
           [JSON.stringify(lote)],
         );
       }

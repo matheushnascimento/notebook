@@ -1,11 +1,14 @@
-import { test } from "node:test";
+import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import { lerMarkdown, escreverMarkdown, MODELOS } from "../src/markdown.js";
+import { novoBanco, fecharBancos } from "./banco-teste.js";
 import * as banco from "../src/banco.js";
 import { renderInicio } from "../src/paginas.js";
 
+
+after(fecharBancos);
 const exemplo = readFileSync(new URL("../exemplos/exemplo.md", import.meta.url), "utf8");
 
 // Quantos materiais há no banco inteiro, de todo mundo.
@@ -44,7 +47,7 @@ test("estrutura fora de ordem e modelo desconhecido viram aviso", async () => {
 });
 
 test("importar mescla sem desfazer progresso, e o .md faz o caminho de volta", async () => {
-  const db = (await banco.abrirBanco(":memory:"));
+  const db = (await novoBanco());
   const r1 = (await banco.importar(db, "ana", lerMarkdown(exemplo).cadernos));
   assert.equal(r1.cadernos.length, 2);
   const caderno = (await banco.caderno(db, "ana", r1.cadernos[0]));
@@ -77,7 +80,7 @@ test("importar mescla sem desfazer progresso, e o .md faz o caminho de volta", a
 });
 
 test("ninguém alcança o caderno de outra pessoa", async () => {
-  const db = (await banco.abrirBanco(":memory:"));
+  const db = (await novoBanco());
   const { cadernos } = (await banco.importar(db, "ana", lerMarkdown("# A\n## D\n### S\n- M\n").cadernos));
   const c = (await banco.caderno(db, "ana", cadernos[0]));
   const s = c.disciplinas[0].sessoes[0];
@@ -97,7 +100,7 @@ test("ninguém alcança o caderno de outra pessoa", async () => {
 });
 
 test("edição: montar um caderno inteiro sem .md", async () => {
-  const db = (await banco.abrirBanco(":memory:"));
+  const db = (await novoBanco());
   const { id } = (await banco.criarCaderno(db, "ana", "  Caderno A  "));
   assert.ok(id);
   assert.match((await banco.criarCaderno(db, "ana", "caderno a")).erro, /Já existe/);
@@ -139,7 +142,7 @@ test("edição: montar um caderno inteiro sem .md", async () => {
 });
 
 test("edição: excluir pede confirmação quando há conteúdo", async () => {
-  const db = (await banco.abrirBanco(":memory:"));
+  const db = (await novoBanco());
   const { cadernos } = (await banco.importar(db, "ana", lerMarkdown("# A\n## D\n### S\n- M1\n- [x] M2\n## Vazia\n").cadernos));
   const id = cadernos[0];
   let c = (await banco.caderno(db, "ana", id));
@@ -165,7 +168,7 @@ test("edição: excluir pede confirmação quando há conteúdo", async () => {
 });
 
 test("edição: nada atravessa para outro caderno ou outra pessoa", async () => {
-  const db = (await banco.abrirBanco(":memory:"));
+  const db = (await novoBanco());
   const [a, b] = (await banco.importar(db, "ana", lerMarkdown("# A\n## D\n### S\n- M\n# B\n## D\n### S\n- M\n").cadernos)).cadernos;
   const outro = (await banco.importar(db, "bia", lerMarkdown("# X\n## D\n### S\n- M\n").cadernos)).cadernos[0];
   const cb = (await banco.caderno(db, "ana", b));
@@ -198,7 +201,7 @@ test("segurança: nomes do protótipo não quebram nada", async () => {
     const { avisos } = lerMarkdown(`# A\n## D\nmodelo: ${m}\n### S\n`);
     assert.match(avisos[0], /não existe/, m);
   }
-  const db = (await banco.abrirBanco(":memory:"));
+  const db = (await novoBanco());
   const id = (await banco.importar(db, "ana", lerMarkdown("# A\n## D\n### S\n- M\n").cadernos)).cadernos[0];
   for (const tipo of ["__proto__", "constructor", "toString", "prototype"]) {
     await assert.doesNotReject(banco.aplicarEdicao(db, "ana", id, [[`nome:${tipo}:1`, "x"], [`novo:${tipo}:1`, "x"]], `excluir:${tipo}:1`, MODELOS), tipo);
@@ -224,14 +227,14 @@ test("segurança: a leitura do .md é linear, sem travar com linha longa", async
 test("segurança: invisíveis e direção bidirecional saem dos nomes", async () => {
   const { cadernos } = lerMarkdown("# A‮gnp.exe\u0007\n");
   assert.equal(cadernos[0].nome, "Agnp.exe");
-  const db = (await banco.abrirBanco(":memory:"));
+  const db = (await novoBanco());
   assert.equal((await banco.caderno(db, "ana", (await banco.criarCaderno(db, "ana", "B\u0000⁦x")).id)).nome, "Bx");
   // Emoji compostos (com ZWJ) continuam inteiros.
   assert.equal((await banco.caderno(db, "ana", (await banco.criarCaderno(db, "ana", "Estudo 👩‍💻")).id)).nome, "Estudo 👩‍💻");
 });
 
 test("segurança: tetos por arquivo e por conta, rápidos e sem gravar pela metade", async () => {
-  const db = (await banco.abrirBanco(":memory:"));
+  const db = (await novoBanco());
   const arquivo = (titulo, n) => `# ${titulo}\n## D\n### S\n` + Array.from({ length: n }, (_, i) => `- M${i}`).join("\n");
 
   // Arquivo acima do teto: recusado antes de gravar, sem custo.
@@ -262,7 +265,7 @@ test("segurança: tetos por arquivo e por conta, rápidos e sem gravar pela meta
 // --- Concluir sem marcar todos os itens (#7) ---------------------------------
 
 test("conclusão: sessão concluída a mão conta como 100% acima, e reabrir desfaz", async () => {
-  const db = (await banco.abrirBanco(":memory:"));
+  const db = (await novoBanco());
   const id = (await banco.importar(db, "ana", lerMarkdown("# C\n## D\n### S1\n- a\n- b\n- c\n- d\n### S2\n- e\n- f\n- g\n- h\n").cadernos)).cadernos[0];
   let c = (await banco.caderno(db, "ana", id));
   const [s1, s2] = c.disciplinas[0].sessoes;
@@ -288,7 +291,7 @@ test("conclusão: sessão concluída a mão conta como 100% acima, e reabrir des
 });
 
 test("conclusão: disciplina e caderno concluem acima, e a automática continua valendo", async () => {
-  const db = (await banco.abrirBanco(":memory:"));
+  const db = (await novoBanco());
   const id = (await banco.importar(db, "ana", lerMarkdown("# C\n## D1\n### S\n- a\n- b\n## D2\n### T\n- c\n### Vazia\n").cadernos)).cadernos[0];
   let c = (await banco.caderno(db, "ana", id));
   const [d1, d2] = c.disciplinas;
@@ -320,7 +323,7 @@ test("conclusão: disciplina e caderno concluem acima, e a automática continua 
 });
 
 test("conclusão: o .md leva e traz, e ninguém conclui o que não é seu", async () => {
-  const db = (await banco.abrirBanco(":memory:"));
+  const db = (await novoBanco());
   const md = "# C\nconcluído: sim\n## D\nconcluida: s\n### S\nConcluído: sim\n- a\n### T\nconcluído: não\n- b\n";
   const lido = lerMarkdown(md);
   assert.deepEqual(lido.avisos, []);
@@ -354,7 +357,7 @@ test("conclusão: o .md leva e traz, e ninguém conclui o que não é seu", asyn
 
 test("api: as operações do editor devolvem a árvore nova", async () => {
   const { operar } = await import("../src/api.js");
-  const db = (await banco.abrirBanco(":memory:"));
+  const db = (await novoBanco());
   const { id } = (await banco.criarCaderno(db, "ana", "Caderno A"));
   let r = (await operar(db, "ana", id, { op: "acrescentar", tipo: "d", nome: "PG" }));
   const d = r.caderno.disciplinas[0];
@@ -392,7 +395,7 @@ test("api: as operações do editor devolvem a árvore nova", async () => {
 
 test("api: entrada inválida é 400, e nada atravessa contas ou cadernos", async () => {
   const { operar } = await import("../src/api.js");
-  const db = (await banco.abrirBanco(":memory:"));
+  const db = (await novoBanco());
   const [a, b] = (await banco.importar(db, "ana", lerMarkdown("# A\n## D\n### S\n- M\n# B\n## D\n### S\n- M\n").cadernos)).cadernos;
   const x = (await banco.importar(db, "bia", lerMarkdown("# X\n## D\n### S\n- M\n").cadernos)).cadernos[0];
   const mb = (await banco.caderno(db, "ana", b)).disciplinas[0].sessoes[0].materiais[0];

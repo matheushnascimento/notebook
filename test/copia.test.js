@@ -1,7 +1,7 @@
 // A cópia do SQLite de antes pro Postgres (scripts/copiar-para-supabase.js),
 // com o PGlite no lugar do Supabase.
 
-import { test } from "node:test";
+import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import { mkdtempSync } from "node:fs";
@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 import { lerSqlite, copiar } from "../scripts/copiar-para-supabase.js";
+import { novoBanco, fecharBancos } from "./banco-teste.js";
 import * as banco from "../src/banco.js";
 
 // Um SQLite no formato de antes, com e sem o concluido_em do #7 nos níveis.
@@ -29,8 +30,10 @@ function sqliteVelho({ comConclusao }) {
   return caminho;
 }
 
+after(fecharBancos);
+
 test("cópia: os ids e o progresso chegam iguais, e o banco segue de onde parou", async () => {
-  const destino = await banco.abrirBanco(":memory:");
+  const destino = await novoBanco();
   const r = await copiar(lerSqlite(sqliteVelho({ comConclusao: false })), destino);
   assert.deepEqual(r.materiais, { n: 3, feitos: 1 });
 
@@ -48,7 +51,7 @@ test("cópia: os ids e o progresso chegam iguais, e o banco segue de onde parou"
 });
 
 test("cópia: recusa destino ocupado, e --substituir troca tudo", async () => {
-  const destino = await banco.abrirBanco(":memory:");
+  const destino = await novoBanco();
   const dados = lerSqlite(sqliteVelho({ comConclusao: true }));
   await copiar(dados, destino);
   await banco.criarCaderno(destino, "ana", "Feito depois");

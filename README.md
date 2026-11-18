@@ -128,6 +128,15 @@ o túnel do Cloudflare, que aponta pra `localhost:9400`, o publicou em
 npm test
 ```
 
+Os testes rodam num PGlite em memória. Pra rodar os do banco no driver da
+produção (`postgres.js`), contra um Postgres descartável:
+
+```bash
+BANCO_TESTE=postgres://postgres:teste@127.0.0.1:55432/postgres node --test --test-concurrency=1 test/notebook.test.js test/copia.test.js
+```
+
+As tabelas desse banco são apagadas a cada teste.
+
 ## Produção
 
 O notebook roda na **Vercel** (projeto `notebook`, região `gru1`), com o

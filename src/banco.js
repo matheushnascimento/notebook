@@ -24,8 +24,10 @@ const idValido = (id) => Number.isSafeInteger(id) && id > 0 && id <= MAIOR_ID;
 // Hora de conclusão em UTC, sem milissegundos, no formato que o SQLite guardava.
 const agora = () => new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
 
-// Listas vão ao banco como JSON (json_to_recordset), que os dois drivers
-// passam como texto, sem depender de como cada um serializa arrays.
+// Listas vão ao banco como JSON (json_to_recordset), sem depender de como cada
+// driver serializa arrays. O parâmetro entra como $n::text::json: com só
+// ::json, o postgres.js vê um parâmetro json e passa o texto por JSON.stringify
+// de novo, e o banco recebe uma string em vez da lista.
 const emJson = (valor) => JSON.stringify(valor);
 
 // --- Leitura -----------------------------------------------------------------
@@ -210,7 +212,7 @@ async function acharOuCriarVarios(c, tipo, idPai, nomes) {
   const criados = await c.consulta(
     `INSERT INTO ${tabela} (${pai}, nome, ordem)
      SELECT $1::${tipoPai}, v.nome, base.ordem + v.i
-       FROM json_to_recordset($2::json) AS v(nome text, i int),
+       FROM json_to_recordset($2::text::json) AS v(nome text, i int),
             (SELECT COALESCE(MAX(ordem), -1) + 1 AS ordem FROM ${tabela} WHERE ${pai} = $1::${tipoPai}) base
       ORDER BY v.i
      ON CONFLICT (${pai}, lower(nome)) DO NOTHING
@@ -218,7 +220,7 @@ async function acharOuCriarVarios(c, tipo, idPai, nomes) {
     [idPai, lista],
   );
   const achados = await c.consulta(
-    `SELECT v.i, t.id FROM json_to_recordset($2::json) AS v(nome text, i int)
+    `SELECT v.i, t.id FROM json_to_recordset($2::text::json) AS v(nome text, i int)
        JOIN ${tabela} t ON t.${pai} = $1::${tipoPai} AND lower(t.nome) = lower(v.nome)`,
     [idPai, lista],
   );
@@ -232,7 +234,7 @@ async function concluirVarios(c, tabela, ids) {
   if (!ids.length) return 0;
   const linhas = await c.consulta(
     `UPDATE ${tabela} SET concluido_em = $2
-      WHERE id IN (SELECT value::int FROM json_array_elements_text($1::json)) AND concluido_em IS NULL
+      WHERE id IN (SELECT value::int FROM json_array_elements_text($1::text::json)) AND concluido_em IS NULL
       RETURNING id`,
     [emJson(ids), agora()],
   );
@@ -362,7 +364,7 @@ async function inserir(c, tipo, idPai, nome) {
 async function ordenar(c, tabela, ids) {
   await c.consulta(
     `UPDATE ${tabela} AS t SET ordem = v.ordem
-       FROM json_to_recordset($1::json) AS v(id int, ordem int) WHERE t.id = v.id`,
+       FROM json_to_recordset($1::text::json) AS v(id int, ordem int) WHERE t.id = v.id`,
     [emJson(ids.map((id, ordem) => ({ id, ordem })))],
   );
 }
