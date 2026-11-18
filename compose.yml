@@ -1,4 +1,6 @@
-# notebook mhdn, em notebook.mhdn.com.br.
+# notebook mhdn no Docker. A produção vai pra Vercel, com o progresso no
+# Supabase (#13); este compose fica pro preview e pra quem quiser rodar na
+# máquina, com o PGlite no volume.
 #
 # Stack separada da Conta mhdn (central-contas): reiniciar o notebook não
 # derruba o login, e o contrário também vale.
@@ -19,7 +21,8 @@ services:
       # portão da central-contas e 9300 o futuro-eu.
       - "127.0.0.1:${PORTA_NOTEBOOK:-9400}:3000"
     volumes:
-      # O único lugar onde o container escreve: o SQLite com o progresso.
+      # O único lugar onde o container escreve: o PGlite com o progresso. O
+      # notebook.db do SQLite de antes fica aqui também, intocado, até o corte.
       - dados:/dados
     read_only: true
     cap_drop: [ALL]

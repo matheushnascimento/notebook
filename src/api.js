@@ -63,8 +63,8 @@ function tipo(valor, permitidos = TIPOS) {
 }
 
 // Aplica uma operação no caderno. Devolve null se o caderno não é da pessoa.
-export function operar(db, usuario, cadernoId, corpo) {
-  if (banco.cadernoDoItem(db, usuario, "c", cadernoId) !== cadernoId) return null;
+export async function operar(db, usuario, cadernoId, corpo) {
+  if ((await banco.cadernoDoItem(db, usuario, "c", cadernoId)) !== cadernoId) return null;
   if (!corpo || typeof corpo !== "object" || Array.isArray(corpo)) throw erro400("Corpo inválido.");
 
   const editar = (campos, acao) => banco.aplicarEdicao(db, usuario, cadernoId, campos, acao, MODELOS);
@@ -74,7 +74,7 @@ export function operar(db, usuario, cadernoId, corpo) {
     case "renomear": {
       const t = tipo(corpo.tipo);
       const id = t === "c" ? cadernoId : inteiro(corpo.id, "id");
-      r = editar([[`nome:${t}:${id}`, texto(corpo.nome, "nome")]], "salvar");
+      r = await editar([[`nome:${t}:${id}`, texto(corpo.nome, "nome")]], "salvar");
       break;
     }
     case "acrescentar": {
@@ -82,30 +82,30 @@ export function operar(db, usuario, cadernoId, corpo) {
       const pai = t === "d" ? cadernoId : inteiro(corpo.pai, "pai");
       const campos = [[`novo:${t}:${pai}`, texto(corpo.nome, "nome")]];
       if (t === "s" && corpo.modelo != null) campos.push([`modelo:s:${pai}`, texto(corpo.modelo, "modelo")]);
-      r = editar(campos, "salvar");
+      r = await editar(campos, "salvar");
       break;
     }
     case "mover": {
       const t = tipo(corpo.tipo);
       const id = t === "c" ? cadernoId : inteiro(corpo.id, "id");
-      banco.moverPara(db, usuario, cadernoId, t, id, inteiro(corpo.indice, "indice"));
+      await banco.moverPara(db, usuario, cadernoId, t, id, inteiro(corpo.indice, "indice"));
       break;
     }
     case "excluir": {
       const t = tipo(corpo.tipo);
       const id = t === "c" ? cadernoId : inteiro(corpo.id, "id");
-      r = editar([], `${corpo.confirmado === true ? "confirmar" : "excluir"}:${t}:${id}`);
+      r = await editar([], `${corpo.confirmado === true ? "confirmar" : "excluir"}:${t}:${id}`);
       break;
     }
     case "concluir": {
       const t = tipo(corpo.tipo, new Set(["c", "d", "s"]));
       const id = t === "c" ? cadernoId : inteiro(corpo.id, "id");
-      if (banco.cadernoDoItem(db, usuario, t, id) === cadernoId) banco.alternarConclusao(db, usuario, t, id);
+      if ((await banco.cadernoDoItem(db, usuario, t, id)) === cadernoId) await banco.alternarConclusao(db, usuario, t, id);
       break;
     }
     case "marcar": {
       const id = inteiro(corpo.id, "id");
-      if (banco.cadernoDoItem(db, usuario, "m", id) === cadernoId) banco.alternarMaterial(db, usuario, id);
+      if ((await banco.cadernoDoItem(db, usuario, "m", id)) === cadernoId) await banco.alternarMaterial(db, usuario, id);
       break;
     }
     default:
@@ -113,6 +113,6 @@ export function operar(db, usuario, cadernoId, corpo) {
   }
 
   if (r.excluiuCaderno) return { excluido: true };
-  const c = banco.caderno(db, usuario, cadernoId);
+  const c = await banco.caderno(db, usuario, cadernoId);
   return { caderno: arvoreJson(c), avisos: r.avisos, confirmar: r.confirmar, foco: r.foco ?? null };
 }

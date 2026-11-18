@@ -16,17 +16,18 @@ FROM node:24.18.0-alpine
 WORKDIR /app
 COPY package.json package-lock.json ./
 # npm ci instala exatamente o que está no package-lock, sem as de desenvolvimento:
-# openid-client 6.8.8 e as duas dependências dele, nada mais. O banco é o
-# node:sqlite, embutido.
+# openid-client, o driver postgres (pro Supabase) e o PGlite, o Postgres
+# embutido que o Docker usa (src/conexao.js).
 RUN npm ci --omit=dev --no-audit --no-fund
 COPY src ./src
 COPY exemplos ./exemplos
 COPY --from=build /build/dist ./dist
 
-# O banco mora no volume /dados, do usuário node.
+# O PGlite mora no volume /dados, do usuário node. Com DATABASE_URL, o banco é
+# o Supabase, e o volume não é usado.
 RUN mkdir -p /dados && chown node:node /dados
 USER node
-ENV NODE_ENV=production PORTA=3000 BANCO=/dados/notebook.db
+ENV NODE_ENV=production PORTA=3000 BANCO=/dados/pglite
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
   CMD wget -qO- http://127.0.0.1:3000/saude || exit 1

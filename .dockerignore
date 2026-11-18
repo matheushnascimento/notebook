@@ -5,3 +5,5 @@ docs
 .env
 .git
 dist
+estatico
+api

@@ -10,8 +10,8 @@ Tudo o que vem de fora passa por um destes caminhos, e só por eles:
 
 | Entrada | De onde | Tratado em |
 | --- | --- | --- |
-| Caminho da URL | qualquer pedido | `server.js`, roteamento |
-| Cabeçalhos `Cookie`, `Origin` e `Host` | qualquer pedido | `server.js` |
+| Caminho da URL | qualquer pedido | `src/app.js`, roteamento |
+| Cabeçalhos `Cookie`, `Origin` e `Host` | qualquer pedido | `src/app.js` |
 | `?volta=` do `/entrar` | link de login | `caminhoSeguro()` |
 | Formulários (urlencoded) | editor sem JavaScript, novo caderno, marcar, excluir | `lerCorpo()`, `aplicarEdicao()` |
 | JSON da API (`/api/caderno/:id`) | editor em React | `lerJson()`, `operar()` em `src/api.js` |
@@ -34,8 +34,15 @@ atendido se o caminho for **exatamente** uma das chaves. Não existe `join`, nem
 `readFile` com o caminho pedido, nem servidor de pasta. Por isso `/../`, `%2e%2e`,
 `..%2f`, `/src/server.js`, `/.env` e `/dados/notebook.db` dão 404, todos testados.
 
-O único outro arquivo é o **banco** (`/dados/notebook.db`). O caminho vem da
-variável `BANCO`, definida no deploy, e nunca do pedido.
+Na Vercel, nada da pasta do projeto é estático: a saída do build é uma pasta só
+com um `robots.txt`, e todo o resto vai pra função (`vercel.json`). Sem isso a
+Vercel serviria `/src/app.js` e os outros arquivos da pasta antes do rewrite.
+
+O banco é o Postgres: o Supabase pela `DATABASE_URL` na Vercel, ou a pasta do
+PGlite em `BANCO` na máquina. Os dois vêm do deploy, nunca do pedido. No
+Supabase, as tabelas têm RLS ligada sem política e nenhum GRANT pra `anon` e
+`authenticated`: a API de dados dele, que aceita a chave pública, não lê nada
+(`src/esquema.js`).
 
 ## 2. Upload de .md, passo a passo
 
@@ -146,10 +153,19 @@ da checagem do passo 3.1. As consultas ficam preparadas e reaproveitadas.
 
 - **Login pela Conta mhdn** com `openid-client`: Authorization Code, PKCE
   **S256** forçado, `state` e `nonce` conferidos, ID token validado pela
-  biblioteca. O login pendente vale 10 minutos e é usado uma vez só.
-- **Sessão:** id aleatório de 256 bits, guardado só em memória, num cookie
-  `__Host-notebook` com `HttpOnly`, `Secure` e `SameSite=Lax`. Dura 7 dias, e o
-  token de acesso não é guardado.
+  biblioteca. O login pendente vai lacrado no cookie `__Host-notebook-login` e
+  vale 10 minutos. Repetir o callback esbarra no code, que o authentik só troca
+  uma vez: o `invalid_grant` volta pra `/entrar`.
+- **Sessão:** `{sub, nome, idToken, expiraEm}` lacrada no próprio cookie
+  `__Host-notebook` com AES-256-GCM (`src/cofre.js`, cópia do painel da
+  central-contas), com `HttpOnly`, `Secure` e `SameSite=Lax`. Dura 7 dias, pelo
+  `expiraEm` lacrado e não pelo `Max-Age`, e o token de acesso não é guardado.
+  Lacre adulterado, de outra chave ou do cookie de login não abre. A chave é
+  `SEGREDO_SESSAO`, obrigatória na Vercel.
+- **Sair** apaga o cookie e encerra a sessão da Conta. Uma cópia do cookie
+  tirada antes fica recusada na instância que atendeu o Sair, até o prazo; na
+  Vercel, outra instância ainda a aceita até os 7 dias. O sub só abre o
+  progresso da própria conta, e entrar de novo é a Conta que decide.
 - **CSRF:** todo `POST` exige `Origin` igual ao endereço do app, além do
   `SameSite`. Sem `Origin`, a resposta é 403.
 - **Redirecionamento aberto:** o `?volta=` só aceita caminho local
