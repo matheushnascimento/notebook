@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 
 import { lerMarkdown, escreverMarkdown, MODELOS } from "../src/markdown.js";
 import * as banco from "../src/banco.js";
+import { renderInicio } from "../src/paginas.js";
 
 const exemplo = readFileSync(new URL("../exemplos/exemplo.md", import.meta.url), "utf8");
 
@@ -427,4 +428,12 @@ test("api: entrada inválida é 400, e nada atravessa contas ou cadernos", async
   }
   assert.deepEqual(banco.caderno(db, "ana", b).disciplinas[0].sessoes[0].materiais.map((m) => [m.nome, m.feito]), [["M", false]]);
   assert.deepEqual(banco.caderno(db, "bia", x).disciplinas[0].sessoes[0].materiais.map((m) => [m.nome, m.feito]), [["M", false]]);
+});
+
+test("a barra da Conta mhdn entra só em sessão real, com o app no meio da faixa", () => {
+  const logado = renderInicio({ usuario: { id: "s1", sub: "ana", nome: "Ana", podeSair: true }, cadernos: [] });
+  assert.match(logado, /<script src="https:\/\/conta\.mhdn\.com\.br\/static\/dist\/assets\/mhdn\/barra-v2\.js" defer><\/script>/);
+  assert.match(logado, /<header data-barra-app>/);
+  const local = renderInicio({ usuario: { id: null, sub: "local", nome: "local", podeSair: false }, cadernos: [] });
+  assert.doesNotMatch(local, /barra-v2\.js/);
 });
