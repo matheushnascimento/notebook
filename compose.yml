@@ -17,12 +17,12 @@ services:
       CLIENT_ID: notebook
       BASE_URL: ${BASE_URL:-https://notebook.mhdn.com.br}
     ports:
-      # Só loopback: quem publica é o Cloudflare Tunnel. 9100 é o painel, 9200 o
-      # portão da central-contas e 9300 o futuro-eu.
+      # Só loopback, e nada publica esta porta: a produção é a Vercel.
       - "127.0.0.1:${PORTA_NOTEBOOK:-9400}:3000"
     volumes:
       # O único lugar onde o container escreve: o PGlite com o progresso. O
-      # notebook.db do SQLite de antes fica aqui também, intocado, até o corte.
+      # notebook.db do SQLite de antes fica aqui também, intocado: é o backup
+      # do progresso até o corte (2026-11-19).
       - dados:/dados
     read_only: true
     cap_drop: [ALL]
