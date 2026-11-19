@@ -159,11 +159,12 @@ pra conferir sem login; o login se testa com `npm run local` ou em produção.
    produção (e o `VERCEL_BRANCH_URL` nos testes, que não têm login).
 3. **O esquema e a cópia do progresso.** `node scripts/copiar-para-supabase.js`
    cria as tabelas no Supabase (com RLS ligada e sem acesso pela chave pública)
-   e copia o SQLite do container `notebook-notebook-1`, com os mesmos ids,
-   numa transação, conferindo as contagens. Lê a `DATABASE_URL` de
-   `~/.config/notebook/supabase.env`. Com dados no destino, recusa, e
-   `--substituir` troca tudo pelo que está no SQLite: é o que se roda de novo na
-   hora do corte.
+   e copia um SQLite de antes, com os mesmos ids, numa transação, conferindo as
+   contagens. Lê a `DATABASE_URL` de `~/.config/notebook/supabase.env`. Com
+   dados no destino, recusa, e `--substituir` troca tudo pelo que está no
+   SQLite. Já rodou: a cópia final foi no corte, em 2026-11-19. Sem o container
+   de antes, a origem é um arquivo (`--de notebook.db`), e `--substituir` apaga
+   o que foi feito depois no Supabase.
 
 Backup: baixar cada caderno como .md, ou o backup diário do Supabase.
 
@@ -179,6 +180,7 @@ Backup: baixar cada caderno como .md, ou o backup diário do Supabase.
 | `PORTA_NOTEBOOK` | `9400` | porta no loopback do host, no Docker |
 
 O **Docker** (`compose.yml`) fica pra quem quiser rodar na máquina, com o PGlite
-no volume `notebook_dados`. O container de antes, com o SQLite, segue de pé no
-homeserver até o corte do DNS; ele não deve ser reconstruído antes disso, ou
-sobe com um PGlite vazio (o `notebook.db` fica intocado no volume).
+no volume `notebook_dados`. O container de antes foi desligado no corte, em
+2026-11-19, e o volume ficou: o `notebook.db` dele é o progresso até o corte,
+guardado como backup. Subir o compose de novo cria um PGlite vazio ao lado,
+sem tocar no `notebook.db`.

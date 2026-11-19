@@ -179,7 +179,9 @@ da checagem do passo 3.1. As consultas ficam preparadas e reaproveitadas.
 
 Sem root (`USER node`), sistema de arquivos **só leitura** (`read_only`), sem
 capabilities (`cap_drop: ALL`), `no-new-privileges`. O único lugar gravável é o
-volume `/dados`. A porta é só `127.0.0.1:9400`, e quem publica é o túnel.
+volume `/dados`. A porta é só `127.0.0.1:9400`. Desde 2026-11-19 o Docker só
+roda na máquina, sem túnel: a produção é a função da Vercel, que não tem disco
+gravável nenhum.
 
 ## Achados desta auditoria
 
