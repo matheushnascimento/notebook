@@ -464,3 +464,29 @@ test("api da sessão: marcar, concluir e em lote devolvem a sessão nova, e nada
   assert.equal(await operarSessao(db, "bia", s1.id, { op: "lote", acao: "concluir" }), null, "sessão de outra pessoa");
   assert.deepEqual((await banco.sessao(db, "ana", s1.id)).sessao.materiais.map((m) => m.feito), [false, false]);
 });
+
+test("api do caderno: a árvore traz o próximo material, as sessões concluídas e as datas", async () => {
+  const { arvoreJson, operar } = await import("../src/api.js");
+  const db = await novoBanco();
+  const [a] = (await banco.importar(db, "ana", lerMarkdown("# A\n## D1\n### S1\n- M1\n### S2\n- M2\n## D2\n### S3\n- M3\n").cadernos)).cadernos;
+  let j = arvoreJson(await banco.caderno(db, "ana", a));
+  assert.deepEqual(j.proximo, { sessao: { id: j.disciplinas[0].sessoes[0].id, nome: "S1", disciplina: "D1" }, material: { nome: "M1" } });
+  assert.equal(j.sessoesTotal, 3);
+  assert.equal(j.sessoesConcluidas, 0);
+  assert.equal(j.concluidoEm, null);
+
+  const [d1] = j.disciplinas;
+  let r = await operar(db, "ana", a, { op: "concluir", tipo: "d", id: d1.id });
+  j = r.caderno;
+  assert.equal(j.disciplinas[0].manual, true);
+  assert.ok(j.disciplinas[0].concluidoEm, "a data da conclusão a mão");
+  assert.equal(j.disciplinas[0].sessoesConcluidas, 2, "disciplina concluída conta todas as sessões");
+  assert.equal(j.sessoesConcluidas, 2);
+  assert.equal(j.proximo.sessao.nome, "S3", "o próximo pula a disciplina concluída");
+
+  r = await operar(db, "ana", a, { op: "concluir", tipo: "c" });
+  assert.equal(r.caderno.concluido, true);
+  assert.equal(r.caderno.proximo, null);
+  assert.equal(r.caderno.sessoesConcluidas, 3);
+  assert.equal(JSON.stringify(r.caderno).includes("ana"), false, "o sub não sai na resposta");
+});

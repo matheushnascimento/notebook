@@ -107,8 +107,8 @@ O editor é um formulário com campos `nome:<tipo>:<id>`, `novo:<tipo>:<id>`,
    única função nova é `moverPara()`, que confere dono e caderno do mesmo jeito.
 6. **Sem sessão, 401 em JSON.** Não há redirecionamento, porque quem chama é o
    script.
-7. **A resposta é a árvore do caderno**, só com nome, id e progresso: nada de
-   `sub` nem de datas.
+7. **A resposta é a árvore do caderno**, só com nome, id, progresso, as datas
+   de conclusão e o próximo material em aberto (#18). Nada de `sub`.
 
 ## 3c. API JSON da página da sessão (#16)
 

@@ -10,12 +10,7 @@
 import { useCallback, useRef, useState } from "react";
 
 import { lerSessao, operarSessao } from "../comum/api.js";
-
-const DATA = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", timeZone: "America/Sao_Paulo" });
-const data = (quando) => DATA.format(new Date(quando));
-
-const pct = (no) => (no.concluido ? 100 : no.total ? Math.round((no.feitos / no.total) * 100) : 0);
-const plural = (n, um, varios) => (n === 1 ? `1 ${um}` : `${n} ${varios}`);
+import { Barra, Conclusao, Contador, data } from "../comum/progresso.jsx";
 
 export function Sessao({ inicial }) {
   const [tela, setTela] = useState(inicial);
@@ -59,21 +54,20 @@ export function Sessao({ inicial }) {
   };
 
   const { caderno: c, sessao: s, anterior, seguinte } = tela;
-  const max = s.total || 1;
 
   return (
     <>
       <span className="rotulo">{s.disciplina}</span>
       <div className="linha-titulo">
         <h1>{s.nome}</h1>
-        <span className="contador">
-          {s.feitosReais ?? s.feitos}/{s.total} · {s.concluido ? "concluída" : `${pct(s)}%`}
-        </span>
+        <Contador no={s} tipo="s" />
       </div>
-      <progress value={s.concluido ? max : s.feitos} max={max} aria-label={`Progresso de ${s.nome}`}>
-        {pct(s)}%
-      </progress>
-      <Conclusao sessao={s} enviar={enviar} />
+      <Barra no={s} rotulo={`Progresso de ${s.nome}`} />
+      {s.concluido && !s.manual ? (
+        <p className="detalhe">Sessão concluída: todos os materiais estão marcados.</p>
+      ) : (
+        <Conclusao tipo="s" no={s} alternar={() => enviar({ op: "concluir" })} />
+      )}
       <section>
         {s.materiais.length ? (
           <>
@@ -114,33 +108,6 @@ export function Sessao({ inicial }) {
         <Vizinha sessao={seguinte} rotulo="Seguinte" />
       </nav>
     </>
-  );
-}
-
-// Concluir ou reabrir a sessão, como conclusao() no servidor. Concluída sozinha,
-// com todos os materiais marcados, não tem o que reabrir.
-function Conclusao({ sessao: s, enviar }) {
-  if (s.manual) {
-    const faltam = s.total - s.feitosReais;
-    return (
-      <div className="conclusao">
-        <span className="detalhe">
-          Sessão concluída{s.concluidoEm ? ` em ${data(s.concluidoEm)}` : ""}
-          {faltam > 0 ? `, com ${plural(faltam, "material", "materiais")} em aberto` : ""}.
-        </span>
-        <button type="button" className="secundario" onClick={() => enviar({ op: "concluir" })}>
-          Reabrir sessão
-        </button>
-      </div>
-    );
-  }
-  if (s.concluido) return <p className="detalhe">Sessão concluída: todos os materiais estão marcados.</p>;
-  return (
-    <div className="conclusao">
-      <button type="button" className="secundario" onClick={() => enviar({ op: "concluir" })}>
-        Concluir sessão
-      </button>
-    </div>
   );
 }
 

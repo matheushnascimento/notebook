@@ -34,7 +34,12 @@ const progresso = (no) => ({
   total: no.total,
   feitos: no.feitos,
   feitosReais: no.feitosReais ?? no.feitos,
+  concluidoEm: no.concluidoEm ?? null,
 });
+
+// O próximo material em aberto, pro "Continuar" da página do caderno (#18).
+const proximo = (p) =>
+  p ? { sessao: { id: p.sessao.id, nome: p.sessao.nome, disciplina: p.sessao.disciplina }, material: { nome: p.material.nome } } : null;
 
 export function arvoreJson(c) {
   return {
@@ -42,10 +47,14 @@ export function arvoreJson(c) {
     nome: c.nome,
     ...progresso(c),
     modelos: Object.fromEntries(Object.entries(MODELOS).map(([nome, passos]) => [nome, passos.length])),
+    sessoesConcluidas: c.sessoesConcluidas,
+    sessoesTotal: c.sessoesTotal,
+    proximo: proximo(c.proximo),
     disciplinas: c.disciplinas.map((d) => ({
       id: d.id,
       nome: d.nome,
       ...progresso(d),
+      sessoesConcluidas: d.sessoesConcluidas,
       sessoes: d.sessoes.map((s) => ({
         id: s.id,
         nome: s.nome,
@@ -66,7 +75,6 @@ export function sessaoJson({ caderno: c, sessao: s, anterior, seguinte }) {
       nome: s.nome,
       disciplina: s.disciplina,
       ...progresso(s),
-      concluidoEm: s.concluidoEm ?? null,
       materiais: s.materiais.map((m) => ({ id: m.id, nome: m.nome, feito: m.feito, feitoEm: m.feitoEm ?? null })),
     },
     anterior: vizinha(anterior),
