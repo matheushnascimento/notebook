@@ -4,7 +4,7 @@
 import { createRoot } from "react-dom/client";
 
 import { Editor } from "./Editor.jsx";
-import { lerCaderno } from "./api.js";
+import { lerCaderno } from "../comum/api.js";
 
 const raiz = document.getElementById("editor-app");
 const id = Number(raiz?.dataset.caderno);

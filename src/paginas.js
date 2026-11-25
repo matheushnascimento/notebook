@@ -189,7 +189,11 @@ export function renderSessao({ usuario, caderno: c, sessao: s, anterior, seguint
 
   const vizinha = (v, rotulo) => (v ? `<a href="/sessao/${v.id}"><span class="rotulo">${rotulo}</span>${esc(v.nome)}</a>` : "<span></span>");
 
+  // O HTML abaixo funciona sem JavaScript. Com o bundle do React, a tela monta
+  // por cima dele dentro de #sessao-app, e marcar não recarrega a página (#16).
+  const script = SCRIPTS.sessao ? `<script type="module" src="${SCRIPTS.sessao}"></script>` : "";
   const corpo = `
+<div id="sessao-app" data-sessao="${s.id}">
 <span class="rotulo">${esc(s.disciplina)}</span>
 <div class="linha-titulo"><h1>${esc(s.nome)}</h1>${contador(s, "s")}</div>
 ${barra(s, `Progresso de ${s.nome}`)}
@@ -206,7 +210,9 @@ ${conclusao("s", s) || `<p class="detalhe">Sessão concluída: todos os materiai
   }
 </section>
 <p><a href="/caderno/${c.id}/editar?foco=s-${s.id}#s-${s.id}">Editar esta sessão</a></p>
-<nav class="vizinhas" aria-label="Outras sessões">${vizinha(anterior, "Anterior")}${vizinha(seguinte, "Seguinte")}</nav>`;
+<nav class="vizinhas" aria-label="Outras sessões">${vizinha(anterior, "Anterior")}${vizinha(seguinte, "Seguinte")}</nav>
+</div>
+${script}`;
   return pagina(s.nome, corpo, { usuario, migalhas: [[c.nome, `/caderno/${c.id}`], [s.nome]] });
 }
 

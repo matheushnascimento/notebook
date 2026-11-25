@@ -1,4 +1,4 @@
-// Chamadas à API do notebook. Mesma origem, com o cookie da sessão, e sempre
+// Chamadas à API do notebook, do editor (#9) e da sessão (#16). Mesma origem, com o cookie da sessão, e sempre
 // JSON: o servidor recusa outro tipo de conteúdo (docs/seguranca.md).
 
 export class ErroApi extends Error {
@@ -30,4 +30,12 @@ export async function lerCaderno(id) {
 
 export function operar(id, operacao) {
   return pedir(`/api/caderno/${id}`, { method: "POST", body: JSON.stringify(operacao) });
+}
+
+export function lerSessao(id) {
+  return pedir(`/api/sessao/${id}`);
+}
+
+export function operarSessao(id, operacao) {
+  return pedir(`/api/sessao/${id}`, { method: "POST", body: JSON.stringify(operacao) });
 }
