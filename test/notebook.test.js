@@ -423,3 +423,44 @@ test("a barra da Conta mhdn entra só em sessão real, com o app no meio da faix
   const local = renderInicio({ usuario: { id: null, sub: "local", nome: "local", podeSair: false }, cadernos: [] });
   assert.doesNotMatch(local, /barra-v2\.js/);
 });
+
+test("api da sessão: marcar, concluir e em lote devolvem a sessão nova, e nada atravessa", async () => {
+  const { operarSessao } = await import("../src/api.js");
+  const db = await novoBanco();
+  const [a] = (await banco.importar(db, "ana", lerMarkdown("# A\n## D\n### S1\n- M1\n- M2\n### S2\n- M3\n").cadernos)).cadernos;
+  const [s1, s2] = (await banco.caderno(db, "ana", a)).disciplinas[0].sessoes;
+  const [m1] = s1.materiais;
+  const [m3] = s2.materiais;
+
+  let r = await operarSessao(db, "ana", s1.id, { op: "marcar", id: m1.id });
+  assert.deepEqual(r.sessao.materiais.map((m) => m.feito), [true, false]);
+  assert.equal(r.sessao.feitos, 1);
+  assert.ok(r.sessao.materiais[0].feitoEm, "a data de quando foi marcado");
+  assert.deepEqual(r.caderno, { id: a, nome: "A" });
+  assert.equal(r.anterior, null);
+  assert.deepEqual(r.seguinte, { id: s2.id, nome: "S2" });
+
+  // Material de outra sessão: pela S1, a S2 não muda.
+  await operarSessao(db, "ana", s1.id, { op: "marcar", id: m3.id });
+  assert.equal((await banco.sessao(db, "ana", s2.id)).sessao.materiais[0].feito, false);
+
+  r = await operarSessao(db, "ana", s1.id, { op: "concluir" });
+  assert.equal(r.sessao.concluido, true);
+  assert.equal(r.sessao.manual, true);
+  assert.equal(r.sessao.feitosReais, 1, "concluir a mão não marca os materiais");
+  assert.ok(r.sessao.concluidoEm);
+  r = await operarSessao(db, "ana", s1.id, { op: "concluir" });
+  assert.equal(r.sessao.manual, false, "o segundo concluir reabre");
+
+  r = await operarSessao(db, "ana", s1.id, { op: "lote", acao: "concluir" });
+  assert.deepEqual(r.sessao.materiais.map((m) => m.feito), [true, true]);
+  assert.equal(r.sessao.concluido, true);
+  r = await operarSessao(db, "ana", s1.id, { op: "lote", acao: "limpar" });
+  assert.deepEqual(r.sessao.materiais.map((m) => m.feito), [false, false]);
+
+  for (const corpo of [null, [], "x", { op: "apagar" }, { op: "marcar", id: "1" }, { op: "lote", acao: "tudo" }, { op: "__proto__" }]) {
+    await assert.rejects(operarSessao(db, "ana", s1.id, corpo), (e) => e.status === 400, JSON.stringify(corpo));
+  }
+  assert.equal(await operarSessao(db, "bia", s1.id, { op: "lote", acao: "concluir" }), null, "sessão de outra pessoa");
+  assert.deepEqual((await banco.sessao(db, "ana", s1.id)).sessao.materiais.map((m) => m.feito), [false, false]);
+});

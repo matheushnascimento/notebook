@@ -12,6 +12,15 @@
 //   { op: "excluir",     tipo, id, confirmado? }
 //   { op: "concluir",    tipo, id }                   tipo c, d ou s
 //   { op: "marcar",      id }                         material
+//
+// E a da página da sessão (#16):
+//
+//   GET  /api/sessao/:id           a sessão, os materiais e as vizinhas
+//   POST /api/sessao/:id           uma operação, e devolve a sessão nova
+//
+//   { op: "marcar",  id }                              material desta sessão
+//   { op: "concluir" }                                 conclui ou reabre
+//   { op: "lote",    acao: "concluir" | "limpar" }     todos os materiais
 
 import * as banco from "./banco.js";
 import { MODELOS } from "./markdown.js";
@@ -44,6 +53,24 @@ export function arvoreJson(c) {
         materiais: s.materiais.map((m) => ({ id: m.id, nome: m.nome, feito: m.feito })),
       })),
     })),
+  };
+}
+
+// O que a página da sessão precisa, a partir de banco.sessao().
+export function sessaoJson({ caderno: c, sessao: s, anterior, seguinte }) {
+  const vizinha = (v) => (v ? { id: v.id, nome: v.nome } : null);
+  return {
+    caderno: { id: c.id, nome: c.nome },
+    sessao: {
+      id: s.id,
+      nome: s.nome,
+      disciplina: s.disciplina,
+      ...progresso(s),
+      concluidoEm: s.concluidoEm ?? null,
+      materiais: s.materiais.map((m) => ({ id: m.id, nome: m.nome, feito: m.feito, feitoEm: m.feitoEm ?? null })),
+    },
+    anterior: vizinha(anterior),
+    seguinte: vizinha(seguinte),
   };
 }
 
@@ -115,4 +142,31 @@ export async function operar(db, usuario, cadernoId, corpo) {
   if (r.excluiuCaderno) return { excluido: true };
   const c = await banco.caderno(db, usuario, cadernoId);
   return { caderno: arvoreJson(c), avisos: r.avisos, confirmar: r.confirmar, foco: r.foco ?? null };
+}
+
+// Aplica uma operação na sessão. Devolve null se a sessão não é da pessoa. Um
+// material de outra sessão não muda nada, como no editor.
+export async function operarSessao(db, usuario, sessaoId, corpo) {
+  const atual = await banco.sessao(db, usuario, sessaoId);
+  if (!atual) return null;
+  if (!corpo || typeof corpo !== "object" || Array.isArray(corpo)) throw erro400("Corpo inválido.");
+
+  switch (corpo.op) {
+    case "marcar": {
+      const id = inteiro(corpo.id, "id");
+      if (atual.sessao.materiais.some((m) => m.id === id)) await banco.alternarMaterial(db, usuario, id);
+      break;
+    }
+    case "concluir":
+      await banco.alternarConclusao(db, usuario, "s", sessaoId);
+      break;
+    case "lote": {
+      if (corpo.acao !== "concluir" && corpo.acao !== "limpar") throw erro400('"acao" precisa ser "concluir" ou "limpar".');
+      await banco.marcarSessao(db, usuario, sessaoId, corpo.acao === "concluir");
+      break;
+    }
+    default:
+      throw erro400("Operação desconhecida.");
+  }
+  return sessaoJson(await banco.sessao(db, usuario, sessaoId));
 }

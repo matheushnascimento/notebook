@@ -16,7 +16,7 @@ export default defineConfig({
     assetsDir: "app",
     sourcemap: false,
     rollupOptions: {
-      input: { editor: "web/editor/main.jsx" },
+      input: { editor: "web/editor/main.jsx", sessao: "web/sessao/main.jsx" },
       output: {
         entryFileNames: "app/[name]-[hash].js",
         chunkFileNames: "app/[name]-[hash].js",

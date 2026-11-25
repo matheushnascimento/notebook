@@ -17,7 +17,7 @@ import { DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, us
 import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 
-import { lerCaderno, operar } from "./api.js";
+import { lerCaderno, operar } from "../comum/api.js";
 
 const Contexto = createContext(null);
 

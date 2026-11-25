@@ -68,6 +68,37 @@ test("sessão lacrada válida abre o notebook, e cada um vê só o seu", async (
   assert.equal((await pedir(`/api/caderno/${id}`, { cookie: bia })).status, 404);
 });
 
+test("página da sessão: API em JSON, só do dono, e o ponto de montagem do React", async () => {
+  const ana = sessao(valida("ana"));
+  const origem = "https://notebook.test";
+  let r = await pedir("/caderno/novo", { cookie: ana, metodo: "POST", corpo: "nome=Caderno+S", origem, tipo: "application/x-www-form-urlencoded" });
+  const [, cid] = r.headers.get("location").match(/^\/caderno\/(\d+)\/editar$/);
+  const operar = async (op) => (await pedir(`/api/caderno/${cid}`, { cookie: ana, metodo: "POST", corpo: JSON.stringify(op), origem, tipo: "application/json" })).json();
+  let arvore = (await operar({ op: "acrescentar", tipo: "d", nome: "D" })).caderno;
+  arvore = (await operar({ op: "acrescentar", tipo: "s", pai: arvore.disciplinas[0].id, nome: "S", modelo: "submódulos" })).caderno;
+  const sid = arvore.disciplinas[0].sessoes[0].id;
+
+  const pagina = await (await pedir(`/sessao/${sid}`, { cookie: ana })).text();
+  assert.match(pagina, new RegExp(`<div id="sessao-app" data-sessao="${sid}">`));
+
+  r = await pedir(`/api/sessao/${sid}`, { cookie: ana });
+  assert.equal(r.status, 200);
+  const lida = await r.json();
+  assert.equal(lida.sessao.materiais.length, 4);
+
+  const bia = sessao(valida("bia"));
+  assert.equal((await pedir(`/api/sessao/${sid}`, { cookie: bia })).status, 404);
+  assert.equal((await pedir(`/api/sessao/${sid}`)).status, 401);
+
+  const marcar = JSON.stringify({ op: "marcar", id: lida.sessao.materiais[0].id });
+  assert.equal((await pedir(`/api/sessao/${sid}`, { cookie: ana, metodo: "POST", corpo: marcar, origem: "https://outro.site", tipo: "application/json" })).status, 403);
+  assert.equal((await pedir(`/api/sessao/${sid}`, { cookie: ana, metodo: "POST", corpo: marcar, origem, tipo: "text/plain" })).status, 415);
+  r = await pedir(`/api/sessao/${sid}`, { cookie: ana, metodo: "POST", corpo: marcar, origem, tipo: "application/json" });
+  assert.equal(r.status, 200);
+  assert.equal((await r.json()).sessao.feitos, 1);
+  assert.equal((await pedir(`/api/sessao/${sid}`, { cookie: bia, metodo: "POST", corpo: marcar, origem, tipo: "application/json" })).status, 404);
+});
+
 test("lacre vencido, adulterado, de outra chave ou de outro cookie não é sessão", async () => {
   const vencida = { ...valida(), expiraEm: Date.now() - 1 };
   const boa = lacrar(CHAVE, "__Host-notebook", valida());

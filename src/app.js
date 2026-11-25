@@ -24,7 +24,7 @@ import { createHash, randomBytes } from "node:crypto";
 import * as banco from "./banco.js";
 import { ehEnderecoPostgres } from "./conexao.js";
 import { chaveDe, lacrar, abrir, emPedacos, juntarPedacos, MAX_PEDACOS, nomeDoPedaco } from "./cofre.js";
-import { operar, arvoreJson } from "./api.js";
+import { operar, arvoreJson, operarSessao, sessaoJson } from "./api.js";
 import { ARQUIVOS_APP } from "./frontend.js";
 import { lerMarkdown, escreverMarkdown, LIMITE_BYTES, MODELOS } from "./markdown.js";
 import { renderInicio, renderCaderno, renderSessao, renderEditar, renderImportar, renderErro, ESTILO, CAMINHO_ESTILO } from "./paginas.js";
@@ -385,6 +385,25 @@ async function apiOperar(req, res, { sessao, params }) {
   }
 }
 
+// --- API da página da sessão (#16) -------------------------------------------
+
+async function apiLerSessao(req, res, { sessao, params }) {
+  const r = await banco.sessao(await db(), sessao.sub, Number(params[0]));
+  if (!r) return json(res, 404, { erro: "Sessão não encontrada." });
+  json(res, 200, sessaoJson(r));
+}
+
+async function apiOperarSessao(req, res, { sessao, params }) {
+  try {
+    const r = await operarSessao(await db(), sessao.sub, Number(params[0]), await lerJson(req));
+    if (!r) return json(res, 404, { erro: "Sessão não encontrada." });
+    json(res, 200, r);
+  } catch (erro) {
+    if (!erro.publico) throw erro;
+    json(res, erro.status ?? 400, { erro: erro.publico });
+  }
+}
+
 async function novoCaderno(req, res, { sessao }) {
   const corpo = await lerCorpo(req);
   const r = await banco.criarCaderno(await db(), sessao.sub, corpo.get("nome"));
@@ -472,6 +491,8 @@ const ROTAS = [
   ["POST", /^\/importar$/, importar],
   ["GET", /^\/api\/caderno\/(\d+)$/, apiLer],
   ["POST", /^\/api\/caderno\/(\d+)$/, apiOperar],
+  ["GET", /^\/api\/sessao\/(\d+)$/, apiLerSessao],
+  ["POST", /^\/api\/sessao\/(\d+)$/, apiOperarSessao],
   ["POST", /^\/caderno\/novo$/, novoCaderno],
   ["GET", /^\/caderno\/(\d+)$/, verCaderno],
   ["GET", /^\/caderno\/(\d+)\/editar$/, verEditar],

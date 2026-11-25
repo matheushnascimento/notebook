@@ -15,6 +15,7 @@ Tudo o que vem de fora passa por um destes caminhos, e só por eles:
 | `?volta=` do `/entrar` | link de login | `caminhoSeguro()` |
 | Formulários (urlencoded) | editor sem JavaScript, novo caderno, marcar, excluir | `lerCorpo()`, `aplicarEdicao()` |
 | JSON da API (`/api/caderno/:id`) | editor em React | `lerJson()`, `operar()` em `src/api.js` |
+| JSON da API (`/api/sessao/:id`) | página da sessão em React | `lerJson()`, `operarSessao()` em `src/api.js` |
 | Arquivo `.md` (multipart) ou texto colado | importar | `lerCorpo()`, `lerMarkdown()`, `importar()` |
 | Resposta do login (code, state) | Conta mhdn | `openid-client` |
 
@@ -108,6 +109,23 @@ O editor é um formulário com campos `nome:<tipo>:<id>`, `novo:<tipo>:<id>`,
    script.
 7. **A resposta é a árvore do caderno**, só com nome, id e progresso: nada de
    `sub` nem de datas.
+
+## 3c. API JSON da página da sessão (#16)
+
+Segue os passos 1 a 3 e 6 da seção 3b: JSON, `Origin`, 64 KB e 401 sem sessão.
+O que muda:
+
+1. **A sessão tem de ser da pessoa**, conferida por `banco.sessao()` antes de
+   qualquer operação. Sessão de outra pessoa dá 404.
+2. **`op` numa lista fechada:** `marcar`, `concluir` e `lote`. O `acao` do lote só
+   aceita `concluir` ou `limpar`, e o id do material tem de ser inteiro seguro.
+   Fora disso, 400.
+3. **Marcar só vale para material da própria sessão.** Um id de outra sessão,
+   mesmo do mesmo dono, não muda nada.
+4. **As mesmas funções do banco do formulário:** `alternarMaterial()`,
+   `alternarConclusao()` e `marcarSessao()`.
+5. **A resposta é a sessão**, com nome, id, progresso e as datas de conclusão,
+   mais o id e o nome do caderno e das sessões vizinhas. Nada de `sub`.
 
 ## 4. SQL
 
