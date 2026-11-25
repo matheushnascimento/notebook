@@ -99,6 +99,17 @@ test("página da sessão: API em JSON, só do dono, e o ponto de montagem do Rea
   assert.equal((await pedir(`/api/sessao/${sid}`, { cookie: bia, metodo: "POST", corpo: marcar, origem, tipo: "application/json" })).status, 404);
 });
 
+test("página do caderno: o ponto de montagem do React, com o aviso escapado", async () => {
+  const ana = sessao(valida("ana"));
+  const r = await pedir("/caderno/novo", { cookie: ana, metodo: "POST", corpo: "nome=Caderno+C", origem: "https://notebook.test", tipo: "application/x-www-form-urlencoded" });
+  const [, cid] = r.headers.get("location").match(/^\/caderno\/(\d+)\/editar$/);
+  let pagina = await (await pedir(`/caderno/${cid}`, { cookie: ana })).text();
+  assert.match(pagina, new RegExp(`<div id="caderno-app" data-caderno="${cid}">`));
+  pagina = await (await pedir(`/caderno/${cid}?importado=%3Cb%3E&marcados=2`, { cookie: ana })).text();
+  assert.match(pagina, /data-aviso="Importado: &lt;b&gt; materiais novos, 2 marcados como concluídos\."/);
+  assert.doesNotMatch(pagina, /<b>/);
+});
+
 test("lacre vencido, adulterado, de outra chave ou de outro cookie não é sessão", async () => {
   const vencida = { ...valida(), expiraEm: Date.now() - 1 };
   const boa = lacrar(CHAVE, "__Host-notebook", valida());

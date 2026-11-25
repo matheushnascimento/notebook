@@ -29,3 +29,31 @@ página da sessão inteira. É a página mais usada no dia a dia. O fim
   próprio.
 - A garantia de funcionar sem JavaScript continua valendo por enquanto. Se ela
   sair, como no fim, isso pede outro ADR.
+
+## ADR-002: página do caderno em React, pela API do editor
+
+**Status:** aceito em 2026-11-25. O Matheus pediu para seguir com a próxima
+tela ("Seguir"), depois de aprovar a da sessão.
+
+**Contexto.** A página do caderno recarrega ao concluir ou reabrir o caderno e
+as disciplinas. As ações dela já existem na API do editor (`concluir` e
+`excluir`), mas a árvore não trazia tudo o que a página mostra.
+
+**Decisão.**
+- A página do caderno vira uma ilha em React dentro de `#caderno-app`, como a
+  sessão (ADR-001). Sem JavaScript, nada muda.
+- Não há rota nova: a tela usa `GET` e `POST /api/caderno/:id`. A árvore
+  (`arvoreJson`) ganha o próximo material, as sessões concluídas e as datas de
+  conclusão de cada nível.
+- O aviso da importação continua vindo do servidor, no atributo `data-aviso`,
+  escapado.
+- Contador, barra e conclusão ficam em `web/comum/progresso.jsx`, usados pela
+  sessão e pelo caderno.
+- Excluir o caderno pela tela volta para o início, sem pedir confirmação de
+  novo: abrir o "Excluir este caderno" já é o passo de confirmação, como no
+  formulário.
+
+**Consequências.**
+- Falta só a página de início, que fica para um PR próprio.
+- O editor passa a receber campos que não usa (datas, próximo). São poucos
+  bytes, e assim as três telas leem a mesma árvore.

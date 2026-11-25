@@ -150,7 +150,11 @@ export function renderCaderno({ usuario, caderno: c, aviso }) {
 </section>`,
   );
 
+  // O HTML abaixo funciona sem JavaScript. Com o bundle do React, a tela monta
+  // por cima dele dentro de #caderno-app, e concluir não recarrega (#18).
+  const script = SCRIPTS.caderno ? `<script type="module" src="${SCRIPTS.caderno}"></script>` : "";
   const corpo = `
+<div id="caderno-app" data-caderno="${c.id}"${aviso ? ` data-aviso="${esc(aviso)}"` : ""}>
 ${aviso ? `<p class="aviso-ok" role="status">${esc(aviso)}</p>` : ""}
 <div class="linha-titulo"><h1>${esc(c.nome)}</h1>${contador(c, "c")}</div>
 ${barra(c, `Progresso de ${c.nome}`)}
@@ -168,7 +172,9 @@ ${disciplinas.join("") || `<section><p>Este caderno ainda não tem disciplinas.<
       <button type="submit" class="perigo">Excluir ${esc(c.nome)}</button>
     </form>
   </details>
-</section>`;
+</section>
+</div>
+${script}`;
   return pagina(c.nome, corpo, { usuario, migalhas: [[c.nome]] });
 }
 
