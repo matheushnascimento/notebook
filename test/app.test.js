@@ -110,6 +110,37 @@ test("página do caderno: o ponto de montagem do React, com o aviso escapado", a
   assert.doesNotMatch(pagina, /<b>/);
 });
 
+test("página de início: lista e cria cadernos pela API, só do dono, com o erro em JSON", async () => {
+  const origem = "https://notebook.test";
+  const cara = sessao(valida("cara"));
+  const criar = (nome, { cookie = cara, de = origem, tipo = "application/json", corpo } = {}) =>
+    pedir("/api/cadernos", { cookie, metodo: "POST", corpo: corpo ?? JSON.stringify({ nome }), origem: de, tipo });
+
+  assert.deepEqual(await (await pedir("/api/cadernos", { cookie: cara })).json(), { cadernos: [] });
+  let r = await criar("Caderno da Cara");
+  assert.equal(r.status, 201);
+  const { id } = await r.json();
+  assert.ok(Number.isSafeInteger(id));
+
+  r = await criar("caderno da cara");
+  assert.equal(r.status, 422);
+  assert.match((await r.json()).erro, /Já existe/);
+  assert.equal((await criar("   ")).status, 422);
+  assert.equal((await criar(null, { corpo: JSON.stringify({ nome: 5 }) })).status, 400);
+  assert.equal((await criar(null, { corpo: "[]" })).status, 400);
+  assert.equal((await criar("Outro", { de: "https://outro.site" })).status, 403);
+  assert.equal((await criar("Outro", { tipo: "text/plain" })).status, 415);
+  assert.equal((await pedir("/api/cadernos")).status, 401);
+
+  const lista = (await (await pedir("/api/cadernos", { cookie: cara })).json()).cadernos;
+  assert.deepEqual(lista.map((c) => [c.id, c.nome, c.quantasDisciplinas, c.sessoesTotal, c.proximo]), [[id, "Caderno da Cara", 0, 0, null]]);
+  assert.equal(JSON.stringify(lista).includes("cara\""), false, "o sub não sai na resposta");
+  assert.deepEqual(await (await pedir("/api/cadernos", { cookie: sessao(valida("davi")) })).json(), { cadernos: [] });
+
+  const pagina = await (await pedir("/", { cookie: cara })).text();
+  assert.match(pagina, /<div id="inicio-app">/);
+});
+
 test("lacre vencido, adulterado, de outra chave ou de outro cookie não é sessão", async () => {
   const vencida = { ...valida(), expiraEm: Date.now() - 1 };
   const boa = lacrar(CHAVE, "__Host-notebook", valida());

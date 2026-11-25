@@ -16,6 +16,7 @@ Tudo o que vem de fora passa por um destes caminhos, e só por eles:
 | Formulários (urlencoded) | editor sem JavaScript, novo caderno, marcar, excluir | `lerCorpo()`, `aplicarEdicao()` |
 | JSON da API (`/api/caderno/:id`) | editor em React | `lerJson()`, `operar()` em `src/api.js` |
 | JSON da API (`/api/sessao/:id`) | página da sessão em React | `lerJson()`, `operarSessao()` em `src/api.js` |
+| JSON da API (`/api/cadernos`) | página de início em React | `lerJson()`, `criarCaderno()` em `src/api.js` |
 | Arquivo `.md` (multipart) ou texto colado | importar | `lerCorpo()`, `lerMarkdown()`, `importar()` |
 | Resposta do login (code, state) | Conta mhdn | `openid-client` |
 
@@ -126,6 +127,23 @@ O que muda:
    `alternarConclusao()` e `marcarSessao()`.
 5. **A resposta é a sessão**, com nome, id, progresso e as datas de conclusão,
    mais o id e o nome do caderno e das sessões vizinhas. Nada de `sub`.
+
+## 3d. API JSON da página de início (#20)
+
+Segue os passos 1 a 3 e 6 da seção 3b: JSON, `Origin`, 64 KB e 401 sem sessão.
+
+1. **`GET /api/cadernos` lista só os cadernos da pessoa**, pelo `sub` da sessão,
+   com o resumo de cada um: nome, id, progresso, quantas disciplinas, as sessões
+   concluídas e o próximo material. Nada de `sub`.
+2. **`POST /api/cadernos` só lê `nome`**, como texto de até 1.000 caracteres
+   antes da limpeza. Outro tipo dá 400. Depois disso, é a mesma
+   `banco.criarCaderno()` do formulário, com a limpeza do nome, o nome único e o
+   teto da conta.
+3. **Nome vazio, repetido ou acima do teto dá 422**, com a mesma mensagem do
+   formulário. Criado, 201 com o id.
+4. **O erro e o nome digitado num 422 do formulário** vão para o React em
+   `data-erro` e `data-nome`, escapados por `esc()`, e o React os mostra como
+   texto.
 
 ## 4. SQL
 
