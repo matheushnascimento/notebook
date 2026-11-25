@@ -113,10 +113,18 @@ export function renderInicio({ usuario, cadernos, erro = null, nomeNovo = "" }) 
   <div class="linha-campo"><input id="novo-caderno" name="nome" required maxlength="200" placeholder="Caderno A, Caderno B..." value="${esc(nomeNovo)}"><button type="submit">Criar</button></div>
   ${erro ? `<p class="aviso" role="alert">${esc(erro)}</p>` : ""}
 </form>`;
+  // O HTML abaixo funciona sem JavaScript. Com o bundle do React, a tela monta
+  // por cima dele dentro de #inicio-app (#20). Um erro do formulário e o nome
+  // digitado vão em data-*, pra o React mostrar o mesmo que o servidor mostrou.
+  const script = SCRIPTS.inicio ? `<script type="module" src="${SCRIPTS.inicio}"></script>` : "";
+  const dados = `${erro ? ` data-erro="${esc(erro)}"` : ""}${nomeNovo ? ` data-nome="${esc(nomeNovo)}"` : ""}`;
   const corpo = `
+<div id="inicio-app"${dados}>
 <div class="linha-titulo"><h1>Seus cadernos</h1><a class="botao" href="/importar">Importar .md</a></div>
 ${cadernos.length ? cartoes.join("") : vazio}
-${novo}`;
+${novo}
+</div>
+${script}`;
   return pagina("Cadernos", corpo, { usuario });
 }
 

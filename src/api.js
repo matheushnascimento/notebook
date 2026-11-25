@@ -65,6 +65,19 @@ export function arvoreJson(c) {
   };
 }
 
+// O resumo de cada caderno, pros cartões da página de início (#20).
+export function resumoJson(c) {
+  return {
+    id: c.id,
+    nome: c.nome,
+    ...progresso(c),
+    quantasDisciplinas: c.disciplinas.length,
+    sessoesConcluidas: c.sessoesConcluidas,
+    sessoesTotal: c.sessoesTotal,
+    proximo: proximo(c.proximo),
+  };
+}
+
 // O que a página da sessão precisa, a partir de banco.sessao().
 export function sessaoJson({ caderno: c, sessao: s, anterior, seguinte }) {
   const vizinha = (v) => (v ? { id: v.id, nome: v.nome } : null);
@@ -177,4 +190,11 @@ export async function operarSessao(db, usuario, sessaoId, corpo) {
       throw erro400("Operação desconhecida.");
   }
   return sessaoJson(await banco.sessao(db, usuario, sessaoId));
+}
+
+// Cria um caderno pelo nome (#20). Devolve { id } ou { erro } com a mesma
+// mensagem do formulário: nome vazio, repetido ou acima do teto da conta.
+export async function criarCaderno(db, usuario, corpo) {
+  if (!corpo || typeof corpo !== "object" || Array.isArray(corpo)) throw erro400("Corpo inválido.");
+  return banco.criarCaderno(db, usuario, texto(corpo.nome, "nome"));
 }

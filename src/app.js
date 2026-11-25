@@ -24,7 +24,7 @@ import { createHash, randomBytes } from "node:crypto";
 import * as banco from "./banco.js";
 import { ehEnderecoPostgres } from "./conexao.js";
 import { chaveDe, lacrar, abrir, emPedacos, juntarPedacos, MAX_PEDACOS, nomeDoPedaco } from "./cofre.js";
-import { operar, arvoreJson, operarSessao, sessaoJson } from "./api.js";
+import { operar, arvoreJson, operarSessao, sessaoJson, resumoJson, criarCaderno } from "./api.js";
 import { ARQUIVOS_APP } from "./frontend.js";
 import { lerMarkdown, escreverMarkdown, LIMITE_BYTES, MODELOS } from "./markdown.js";
 import { renderInicio, renderCaderno, renderSessao, renderEditar, renderImportar, renderErro, ESTILO, CAMINHO_ESTILO } from "./paginas.js";
@@ -385,6 +385,23 @@ async function apiOperar(req, res, { sessao, params }) {
   }
 }
 
+// --- API da página de início (#20) -------------------------------------------
+
+async function apiListar(req, res, { sessao }) {
+  json(res, 200, { cadernos: (await banco.arvore(await db(), sessao.sub)).map(resumoJson) });
+}
+
+async function apiCriar(req, res, { sessao }) {
+  try {
+    const r = await criarCaderno(await db(), sessao.sub, await lerJson(req));
+    if (r.erro) return json(res, 422, { erro: r.erro });
+    json(res, 201, { id: r.id });
+  } catch (erro) {
+    if (!erro.publico) throw erro;
+    json(res, erro.status ?? 400, { erro: erro.publico });
+  }
+}
+
 // --- API da página da sessão (#16) -------------------------------------------
 
 async function apiLerSessao(req, res, { sessao, params }) {
@@ -489,6 +506,8 @@ const ROTAS = [
   ["GET", /^\/$/, inicio],
   ["GET", /^\/importar$/, formImportar],
   ["POST", /^\/importar$/, importar],
+  ["GET", /^\/api\/cadernos$/, apiListar],
+  ["POST", /^\/api\/cadernos$/, apiCriar],
   ["GET", /^\/api\/caderno\/(\d+)$/, apiLer],
   ["POST", /^\/api\/caderno\/(\d+)$/, apiOperar],
   ["GET", /^\/api\/sessao\/(\d+)$/, apiLerSessao],

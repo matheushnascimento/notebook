@@ -57,3 +57,32 @@ as disciplinas. As ações dela já existem na API do editor (`concluir` e
 - Falta só a página de início, que fica para um PR próprio.
 - O editor passa a receber campos que não usa (datas, próximo). São poucos
   bytes, e assim as três telas leem a mesma árvore.
+
+## ADR-003: página de início em React, e o fim da migração
+
+**Status:** aceito em 2026-11-25. O Matheus pediu para seguir ("Seguir"), depois
+de aprovar a página do caderno.
+
+**Contexto.** A página de início era a última em HTML do servidor com
+formulário. Criar um caderno leva ao editor, então o ganho aqui é outro: um
+nome vazio ou repetido recarregava a página só para mostrar o erro.
+
+**Decisão.**
+- A página de início vira uma ilha em React dentro de `#inicio-app`, como as
+  outras (ADR-001 e ADR-002). Sem JavaScript, nada muda.
+- API nova: `GET /api/cadernos`, com o resumo de cada caderno, e
+  `POST /api/cadernos`, que cria pelo nome e devolve 201 com o id, ou 422 com o
+  erro.
+- Criar continua levando ao editor do caderno novo. O erro aparece no próprio
+  formulário, sem perder o que foi digitado.
+- Um erro que veio do servidor (o 422 do formulário) passa para o React em
+  `data-erro` e `data-nome`.
+
+**Consequências.**
+- As quatro telas (início, caderno, sessão e editor) estão em React, e nenhuma
+  ação recarrega a página com JavaScript.
+- A garantia de funcionar sem JavaScript continua de pé: cada página ainda chega
+  pronta do servidor, com os formulários. Tirá-la, como no fim, simplificaria o
+  código, mas pede outro ADR.
+- A troca de página continua sendo uma navegação normal. Rotas no cliente, como
+  no fim, ficam para uma decisão própria, se fizerem falta.

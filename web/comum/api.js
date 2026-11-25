@@ -32,6 +32,14 @@ export function operar(id, operacao) {
   return pedir(`/api/caderno/${id}`, { method: "POST", body: JSON.stringify(operacao) });
 }
 
+export async function lerCadernos() {
+  return (await pedir("/api/cadernos")).cadernos;
+}
+
+export function criarCaderno(nome) {
+  return pedir("/api/cadernos", { method: "POST", body: JSON.stringify({ nome }) });
+}
+
 export function lerSessao(id) {
   return pedir(`/api/sessao/${id}`);
 }
